@@ -411,6 +411,17 @@ function refreshMapDisplay() {
                 // 如果是今天的日期，且沒有明確資訊，則預設為正常
                 statusToDisplay = 'normal';
             }
+
+            // 如果縣市有全天停班課或部分區域停班課，則優先顯示其對應顏色
+            if (info && info.dates[displayDateStr]) {
+                if (info.dates[displayDateStr].status === 'suspended') {
+                    statusToDisplay = 'suspended';
+                } else if (info.dates[displayDateStr].status === 'partial') {
+                    statusToDisplay = 'partial';
+                } else if (info.dates[displayDateStr].status === 'partial_time') {
+                    statusToDisplay = 'partial_time';
+                }
+            }
             layer.setStyle(getStyle(statusToDisplay));
         });
     }
@@ -420,8 +431,13 @@ function refreshMapDisplay() {
     const currentDisplayNameInPanel = infoPanel.dataset.displayName;
     if (currentCountyNameInPanel && currentDisplayNameInPanel) {
         updateInfoPanel(currentCountyNameInPanel, currentDisplayNameInPanel, currentDisplayDate);
-        // Re-render townships for the previously selected county with the new date
-        renderTownshipsForCounty(currentCountyNameInPanel, currentDisplayDate);
+        // 只有當縣市不是全天停班課時才渲染鄉鎮圖層
+        const countyInfoForTowns = suspensionData[normalizeName(currentCountyNameInPanel)];
+        if (!countyInfoForTowns || !countyInfoForTowns.dates[formatDateToYYYYMMDD(currentDisplayDate)] || countyInfoForTowns.dates[formatDateToYYYYMMDD(currentDisplayDate)].status !== 'suspended') {
+            renderTownshipsForCounty(currentCountyNameInPanel, currentDisplayDate);
+        } else {
+            affectedTownshipLayers.clearLayers(); // 如果縣市全天停班課，則清空鄉鎮圖層
+        }
     } else {
         infoPanel.innerHTML = `<p class="text-gray-600">請將滑鼠移至或點擊地圖上的縣市以查看資訊。</p>`;
         affectedTownshipLayers.clearLayers(); // Clear townships if no county is selected
@@ -480,7 +496,8 @@ function updateInfoPanel(countyName, displayName, displayDate) {
     </p>`;
 
     // 在面板中顯示鄉鎮受影響資訊
-    if (countyInfo && countyInfo.hasTownshipSpecificData && townGeojson) { // Check hasTownshipSpecificData here
+    // 只有當縣市不是全天停班課時才顯示鄉鎮詳情
+    if (countyInfo && countyInfo.hasTownshipSpecificData && townGeojson && countyDisplayDateStatus.status !== 'suspended') { 
         let townshipDetails = '';
         const filteredTownFeatures = townGeojson.features.filter(f => normalizeName(f.properties.county) === normalizeName(countyName));
         const affectedTownshipsInCounty = filteredTownFeatures.filter(townFeature => {
@@ -526,7 +543,7 @@ function updateInfoPanel(countyName, displayName, displayDate) {
                 townshipDetails += `</div>`;
             });
             panelContent += townshipDetails;
-        } else {
+        } else if (countyInfo.dates[displayDateStr] && countyInfo.dates[displayDateStr].status === 'partial') {
             // If county has partial status but no specific townships are listed in the feed
             panelContent += `<h4 class="font-bold text-gray-700 mt-4">受影響鄉鎮資訊:</h4>`;
             panelContent += `<p class="text-sm text-gray-600 mt-2">此縣市有部分區域停班課，但無更詳細的鄉鎮資訊已公布。</p>`;
@@ -574,6 +591,17 @@ async function renderMap() {
                         // 如果是今天的日期，且沒有明確資訊，則預設為正常
                         statusToDisplay = 'normal';
                     }
+
+                    // 如果縣市有全天停班課或部分區域停班課，則優先顯示其對應顏色
+                    if (info && info.dates[displayDateStr]) {
+                        if (info.dates[displayDateStr].status === 'suspended') {
+                            statusToDisplay = 'suspended';
+                        } else if (info.dates[displayDateStr].status === 'partial') {
+                            statusToDisplay = 'partial';
+                        } else if (info.dates[displayDateStr].status === 'partial_time') {
+                            statusToDisplay = 'partial_time';
+                        }
+                    }
                     return getStyle(statusToDisplay);
                 },
                 onEachFeature: (feature, layer) => {
@@ -597,6 +625,7 @@ async function renderMap() {
                             if (!currentCountyNameInPanel || currentCountyNameInPanel !== countyName) {
                                 infoPanel.innerHTML = `<p class="text-gray-600">請將滑鼠移至或點擊地圖上的縣市以查看資訊。</p>`;
                             }
+                            affectedTownshipLayers.clearLayers(); // 滑鼠移開縣市時清空鄉鎮圖層
                         },
                         click: e => {
                             // 修正：在 fitBounds 前檢查邊界有效性
@@ -612,8 +641,14 @@ async function renderMap() {
 
                             updateInfoPanel(countyName, displayName, currentDisplayDate); // 點擊時更新資訊面板
                             
-                            // Render townships for the clicked county
-                            renderTownshipsForCounty(countyName, currentDisplayDate);
+                            // 只有當縣市不是全天停班課時才渲染鄉鎮圖層
+                            const countyInfoForTowns = suspensionData[normalizeName(countyName)];
+                            if (!countyInfoForTowns || !countyInfoForTowns.dates[formatDateToYYYYMMDD(currentDisplayDate)] || countyInfoForTowns.dates[formatDateToYYYYMMDD(currentDisplayDate)].status !== 'suspended') {
+                                renderTownshipsForCounty(countyName, currentDisplayDate);
+                            } else {
+                                affectedTownshipLayers.clearLayers(); // 如果縣市全天停班課，則清空鄉鎮圖層
+                            }
+
 
                             const countyInfo = suspensionData[countyName];
                             let popupContent = `<strong class="text-base">${displayName}</strong><br>`;
@@ -648,7 +683,8 @@ async function renderMap() {
                             </span>`;
 
                             // 在點擊彈出視窗中也顯示受影響鄉鎮資訊
-                            if (countyInfo && countyInfo.hasTownshipSpecificData && townGeojson) {
+                            // 只有當縣市不是全天停班課時才顯示鄉鎮詳情
+                            if (countyInfo && countyInfo.hasTownshipSpecificData && townGeojson && countyDisplayDateStatus.status !== 'suspended') {
                                 const filteredTownFeatures = townGeojson.features.filter(f => normalizeName(f.properties.county) === normalizeName(countyName));
                                 const affectedTownshipsInCounty = filteredTownFeatures.filter(townFeature => {
                                     const townKey = normalizeName(townFeature.properties.county + townFeature.properties.town);
@@ -689,7 +725,7 @@ async function renderMap() {
                                             ${formatDisplayDate(nextDayForPopup)}：${townNextDayStatus.text}
                                         </span>`;
                                     });
-                                } else {
+                                } else if (countyInfo.dates[displayDateStrForPopup] && countyInfo.dates[displayDateStrForPopup].status === 'partial') {
                                     popupContent += `<br><strong class="text-base">受影響鄉鎮:</strong>`;
                                     popupContent += `<br><span class="text-sm text-gray-600">此縣市有部分區域停班課，但無更詳細的鄉鎮資訊已公布。</span>`;
                                 }
