@@ -294,7 +294,8 @@
         // --- 2. 全域變數與 DOM 元素 ---
         let countyGeojsonLayer; // 縣市層 GeoJSON 圖層
         let townGeojson = null; // 鄉鎮層 GeoJSON 原始資料 (用於查找鄉鎮邊界)
-        let affectedTownshipLayers = L.layerGroup().addTo(map); // 儲存受影響鄉鎮的圖層群組，直接添加到地圖
+        // affectedTownshipLayers 已經在初始化時添加到地圖，現在只需確保它在適當的時機更新和置頂
+        let affectedTownshipLayers = L.layerGroup().addTo(map); 
 
         const infoPanel = document.getElementById('info-panel');
         const updateTimeEl = document.getElementById('update-time');
@@ -363,7 +364,6 @@
                 }
 
                 // 處理 RSS 訂閱源中的每個條目
-                const entries = xmlDoc.querySelectorAll('entry');
                 entries.forEach(entry => {
                     const summary = entry.querySelector('summary')?.textContent || '';
                     const cleanSummary = summary.replace(/\[.*?\]/g, '').trim(); // 移除括號內的資訊
@@ -558,7 +558,7 @@
 
                                     if (affectedTownshipsInCounty.length > 0) {
                                         panelContent += `<h4 class="font-bold text-gray-700 mt-4">受影響鄉鎮資訊:</h4>`;
-                                        affectedTownshipsInCounty.forEach(townFeature => { // 使用 townFeature
+                                        affectedTownshipsInCounty.forEach(townFeature => { 
                                             const townKey = normalizeName(townFeature.properties.county + townFeature.properties.town);
                                             const info = suspensionData[townKey];
                                             const townTodayStatusColor = getStyle(info.today.status).fillColor;
@@ -606,7 +606,7 @@
 
                                         if (affectedTownshipsInCounty.length > 0) {
                                             popupContent += `<br><strong class="text-base">受影響鄉鎮:</strong>`;
-                                            affectedTownshipsInCounty.forEach(townFeature => { // 使用 townFeature
+                                            affectedTownshipsInCounty.forEach(townFeature => { 
                                                 const townKey = normalizeName(townFeature.properties.county + townFeature.properties.town);
                                                 const info = suspensionData[townKey];
                                                 const townTodayStatusColor = getStyle(info.today.status).fillColor;
@@ -635,6 +635,9 @@
                 if (countyGeojsonLayer.getBounds().isValid()) {
                     map.fitBounds(countyGeojsonLayer.getBounds(), { padding: [20, 20] });
                 }
+
+                // 清空舊的鄉鎮圖層
+                affectedTownshipLayers.clearLayers();
 
                 // 直接繪製受影響的鄉鎮圖層
                 if (townGeojson) {
