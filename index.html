@@ -26,6 +26,7 @@
             padding: 0;
             font-family: 'Noto Sans TC', sans-serif;
             background-color: #f0f2f5;
+            overflow: hidden; /* 防止滾動條在側邊欄打開時出現 */
         }
         /* 地圖容器樣式，確保地圖能響應式填充空間 */
         #map {
@@ -103,19 +104,101 @@
             text-decoration: none;
             cursor: pointer;
         }
+
+        /* 側邊欄動畫和定位 */
+        #sidebar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            height: 100%;
+            width: 80%; /* 手機上側邊欄寬度 */
+            max-width: 350px; /* 最大寬度限制 */
+            transform: translateX(-100%); /* 預設隱藏在左側 */
+            transition: transform 0.3s ease-out;
+            z-index: 500; /* 高於地圖，低於 modal */
+            box-shadow: 2px 0 10px rgba(0,0,0,0.2);
+        }
+        #sidebar.open {
+            transform: translateX(0); /* 打開時滑入 */
+        }
+        /* 遮罩層 */
+        #sidebar-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            z-index: 400; /* 在地圖之上，側邊欄之下 */
+            display: none; /* 預設隱藏 */
+        }
+        #sidebar-overlay.open {
+            display: block;
+        }
+
+        /* 桌面版側邊欄樣式（覆蓋手機版固定定位） */
+        @media (min-width: 768px) { /* md breakpoint */
+            #sidebar {
+                position: relative;
+                width: 33.333333%; /* md:w-1/3 */
+                max-width: none; /* 取消最大寬度限制 */
+                transform: translateX(0); /* 始終顯示 */
+                box-shadow: none; /* 移除陰影 */
+            }
+            #sidebar-overlay {
+                display: none !important; /* 桌面版不顯示遮罩 */
+            }
+            /* 確保主內容區塊在桌面版正確佈局 */
+            main {
+                flex-direction: row !important;
+            }
+        }
+        @media (min-width: 1024px) { /* lg breakpoint */
+            #sidebar {
+                width: 25%; /* lg:w-1/4 */
+            }
+        }
+
+        /* 漢堡選單按鈕樣式 */
+        .hamburger-menu {
+            display: block; /* 手機版顯示 */
+            background-color: #3b82f6;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 24px; /* 調整大小 */
+            line-height: 1;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            transition: background-color 0.2s;
+        }
+        .hamburger-menu:hover {
+            background-color: #2563eb;
+        }
+        @media (min-width: 768px) {
+            .hamburger-menu {
+                display: none; /* 桌面版隱藏 */
+            }
+        }
     </style>
 </head>
 <body class="flex flex-col h-screen">
 
     <!-- 頁首區塊 -->
     <header class="bg-white shadow-md z-20">
-        <div class="container mx-auto px-4 py-3">
-            <h1 class="text-2xl font-bold text-gray-800">台灣停班停課資訊地圖</h1>
-            <p class="text-xs text-gray-500 mt-1">
-                地理圖資：<a href="https://github.com/RBeeChen/Taiwan-Go-or-Not-to-GO/raw/refs/heads/main/twmap.json" target="_blank" class="text-blue-500 hover:underline">RBeeChen/Taiwan-Go-or-Not-to-GO</a> | 
-                停班課資訊：<a href="https://www.ncdr.nat.gov.tw/" target="_blank" class="text-blue-500 hover:underline">國家災害防救科技中心</a>
-            </p>
-            <p id="update-time" class="text-xs text-gray-600 font-semibold mt-1">資料更新時間：載入中...</p>
+        <div class="container mx-auto px-4 py-3 flex items-center justify-between">
+            <div>
+                <h1 class="text-2xl font-bold text-gray-800">台灣停班停課資訊地圖</h1>
+                <p class="text-xs text-gray-500 mt-1">
+                    地理圖資：<a href="https://github.com/RBeeChen/Taiwan-Go-or-Not-to-GO/raw/refs/heads/main/twmap.json" target="_blank" class="text-blue-500 hover:underline">RBeeChen/Taiwan-Go-or-Not-to-GO</a> | 
+                    停班課資訊：<a href="https://www.ncdr.nat.gov.tw/" target="_blank" class="text-blue-500 hover:underline">國家災害防救科技中心</a>
+                </p>
+                <p id="update-time" class="text-xs text-gray-600 font-semibold mt-1">資料更新時間：載入中...</p>
+            </div>
+            <!-- 漢堡選單按鈕 (手機版顯示) -->
+            <button id="sidebar-toggle-btn" class="hamburger-menu md:hidden">
+                &#9776; <!-- 漢堡圖示 -->
+            </button>
         </div>
     </header>
 
@@ -123,7 +206,7 @@
     <main class="flex-grow flex flex-col md:flex-row overflow-hidden">
         
         <!-- 側邊資訊欄 -->
-        <aside class="w-full md:w-1/3 lg:w-1/4 p-4 bg-gray-50 border-r border-gray-200 overflow-y-auto">
+        <aside id="sidebar" class="w-full p-4 bg-gray-50 border-r border-gray-200 overflow-y-auto">
             <h2 class="text-lg font-bold text-gray-700 mb-2">詳細資訊</h2>
             <div id="info-panel" class="p-4 bg-white rounded-lg shadow min-h-[100px]">
                 <p class="text-gray-600">請將滑鼠移至或點擊地圖上的縣市以查看資訊。</p>
@@ -179,6 +262,9 @@
 
     </main>
 
+    <!-- 側邊欄遮罩層 (手機版顯示) -->
+    <div id="sidebar-overlay" class="md:hidden"></div>
+
     <!-- 錯誤詳情彈出視窗 -->
     <div id="error-detail-modal" class="flex">
         <div id="error-detail-content">
@@ -212,6 +298,11 @@
         const weatherBulletinInfoEl = document.getElementById('weather-bulletin-info'); // 天氣快報資訊元素
         let lastErrorMessage = ''; // 儲存最後一次錯誤訊息的變數
 
+        // 新增側邊欄相關 DOM 元素
+        const sidebar = document.getElementById('sidebar');
+        const sidebarToggleBtn = document.getElementById('sidebar-toggle-btn');
+        const sidebarOverlay = document.getElementById('sidebar-overlay');
+
         const suspensionData = {}; 
         // 定義需要特別顯示的離島名稱，用於從 RSS 資料中篩選
         const outlyingIslands = ['澎湖縣', '金門縣', '連江縣', '臺東縣蘭嶼鄉', '臺東縣綠島鄉'];
@@ -219,6 +310,9 @@
         // --- URL 定義 ---
         // 使用代理來解決 GeoJSON 檔案的 CORS 問題
         const geojsonURL = 'https://github.com/RBeeChen/Taiwan-Go-or-Not-to-GO/raw/refs/heads/main/twmap.json';
+        // 停班課資訊來源為國家災害防救科技中心 (NCDR) 的 RSS 訂閱源。
+        // NCDR 整合了行政院人事行政總處等各級政府機關的發布資訊，是目前最即時且完整的停班課資料來源。
+        // 因此，此處的 RSS 連結是正確的，無需更改為行政院人事行政總處的網頁連結。
         const rssFeedURL = 'https://alerts.ncdr.nat.gov.tw/RssAtomFeed.ashx?AlertType=33';
         const cwaWarningRSSURL = 'https://www.cwa.gov.tw/rss/Data/cwa_warning.xml'; // 中央氣象局天氣快報 RSS
         // 將 CORS 代理服務更換為 corsproxy.io
@@ -271,17 +365,53 @@
                     county = normalizeCountyName(county.trim());
                     statusText = statusText.trim();
 
-                    if (statusText.includes('尚未列入警戒區')) return; // 跳過非警戒區域
+                    // 初始化縣市的今天和明天狀態為正常，明天預設為「尚未發布資訊」
+                    const countyData = {
+                        today: { status: 'normal', text: '今天照常上班、照常上課' },
+                        tomorrow: { status: 'normal', text: '明天尚未發布資訊' }, // 預設為尚未發布
+                        hasSpecificTomorrow: false // 標記明天是否有明確資訊
+                    };
 
-                    let status = 'normal';
-                    if (statusText.includes('停止上班') || statusText.includes('停止上課')) {
-                        status = 'suspended';
-                        // 檢查是否有部分停班課的條件
-                        if (statusText.includes('下午') || statusText.includes('晚上') || statusText.includes('除了') || statusText.includes('未達') || statusText.includes('僅')) {
-                            status = 'partial';
+                    // 使用正規表達式嘗試提取包含「今天」或「明天」的語句
+                    // 匹配「今天」開頭的語句，直到句號或分號
+                    const todayMatch = statusText.match(/(今天[^。；]*?(停止上班|照常上班|已達停止上班及上課標準)[^。；]*?)/);
+                    // 匹配「明天」開頭的語句，直到句號或分號
+                    const tomorrowMatch = statusText.match(/(明天[^。；]*?(停止上班|照常上班|已達停止上班及上課標準)[^。；]*?)/);
+
+                    if (todayMatch && todayMatch[0]) {
+                        const stmt = todayMatch[0].trim();
+                        let currentStatus = 'normal';
+                        let isSuspended = stmt.includes('停止上班') || stmt.includes('停止上課') || stmt.includes('已達停止上班及上課標準');
+                        let isPartial = stmt.includes('下午') || stmt.includes('晚上') || stmt.includes('除了') || stmt.includes('未達') || stmt.includes('僅');
+                        if (isSuspended) {
+                            currentStatus = isPartial ? 'partial' : 'suspended';
                         }
+                        countyData.today = { status: currentStatus, text: stmt };
+                    } else if (!statusText.includes('今天') && !statusText.includes('明天')) {
+                        // 如果沒有明確的「今天」或「明天」語句，則將整個 statusText 視為今天的狀態
+                        let currentStatus = 'normal';
+                        let isSuspended = statusText.includes('停止上班') || statusText.includes('停止上課') || statusText.includes('已達停止上班及上課標準');
+                        let isPartial = statusText.includes('下午') || statusText.includes('晚上') || statusText.includes('除了') || statusText.includes('未達') || statusText.includes('僅');
+                        if (isSuspended) {
+                            currentStatus = isPartial ? 'partial' : 'suspended';
+                        }
+                        // 為確保語意清晰，在前面加上「今天」
+                        countyData.today = { status: currentStatus, text: `今天${statusText}` }; 
                     }
-                    suspensionData[county] = { status, description: statusText };
+
+                    if (tomorrowMatch && tomorrowMatch[0]) {
+                        const stmt = tomorrowMatch[0].trim();
+                        let currentStatus = 'normal';
+                        let isSuspended = stmt.includes('停止上班') || stmt.includes('停止上課') || stmt.includes('已達停止上班及上課標準');
+                        let isPartial = stmt.includes('下午') || stmt.includes('晚上') || stmt.includes('除了') || stmt.includes('未達') || stmt.includes('僅');
+                        if (isSuspended) {
+                            currentStatus = isPartial ? 'partial' : 'suspended';
+                        }
+                        countyData.tomorrow = { status: currentStatus, text: stmt };
+                        countyData.hasSpecificTomorrow = true;
+                    }
+
+                    suspensionData[county] = countyData;
                 });
 
             } catch (error) {
@@ -311,7 +441,8 @@
                     style: feature => {
                         const countyName = normalizeCountyName(feature.properties.COUNTYNAME);
                         const info = suspensionData[countyName];
-                        return getStyle(info ? info.status : 'normal'); // 根據停班停課狀態應用樣式
+                        // 地圖顏色主要反映今天的狀態，如果沒有今天資訊則預設正常
+                        return getStyle(info && info.today ? info.today.status : 'normal'); 
                     },
                     onEachFeature: (feature, layer) => {
                         const countyName = normalizeCountyName(feature.properties.COUNTYNAME);
@@ -326,10 +457,24 @@
                                 
                                 const info = suspensionData[countyName];
                                 if (info) {
-                                    const statusColor = getStyle(info.status).fillColor;
-                                    infoPanel.innerHTML = `<h3 class="font-bold text-lg text-gray-900">${displayName}</h3><p class="mt-1 font-semibold" style="color:${statusColor};">${info.description}</p>`;
+                                    let panelContent = `<h3 class="font-bold text-lg text-gray-900">${displayName}</h3>`;
+                                    
+                                    // 顯示今天的狀態
+                                    const todayStatusColor = getStyle(info.today.status).fillColor;
+                                    panelContent += `<p class="mt-1 font-semibold" style="color:${todayStatusColor};">${info.today.text}</p>`;
+
+                                    // 顯示明天的狀態
+                                    const tomorrowStatusColor = getStyle(info.tomorrow.status).fillColor;
+                                    // 判斷是否顯示「明天尚未發布資訊」或實際的明天資訊
+                                    if (info.hasSpecificTomorrow || info.tomorrow.status !== 'normal') {
+                                        panelContent += `<p class="mt-1 font-semibold" style="color:${tomorrowStatusColor};">${info.tomorrow.text}</p>`;
+                                    } else { // 如果沒有明確的明天資訊且明天狀態為正常 (預設值)
+                                        panelContent += `<p class="mt-1 font-semibold text-gray-500">明天尚未發布資訊</p>`;
+                                    }
+
+                                    infoPanel.innerHTML = panelContent;
                                 } else {
-                                    infoPanel.innerHTML = `<h3 class="font-bold text-lg text-gray-900">${displayName}</h3><p class="mt-1 font-semibold text-blue-600">正常上班上課</p><p class="text-xs text-gray-400 mt-2">(無特別發布之警戒資訊)</p>`;
+                                    infoPanel.innerHTML = `<h3 class="font-bold text-lg text-gray-900">${displayName}</h3><p class="mt-1 font-semibold text-blue-600">今天照常上班、照常上課</p><p class="mt-1 font-semibold text-gray-500">明天尚未發布資訊</p><p class="text-xs text-gray-400 mt-2">(無特別發布之警戒資訊)</p>`;
                                 }
                             },
                             mouseout: e => {
@@ -339,7 +484,17 @@
                             click: e => {
                                 map.fitBounds(e.target.getBounds()); // 縮放至點擊的縣市
                                 const info = suspensionData[countyName];
-                                const popupContent = `<strong class="text-base">${displayName}</strong><br>${info ? info.description : '正常上班上課'}`;
+                                let popupContent = `<strong class="text-base">${displayName}</strong><br>`;
+                                if (info) {
+                                    popupContent += `<span style="color:${getStyle(info.today.status).fillColor};">${info.today.text}</span><br>`;
+                                    if (info.hasSpecificTomorrow || info.tomorrow.status !== 'normal') {
+                                        popupContent += `<span style="color:${getStyle(info.tomorrow.status).fillColor};">${info.tomorrow.text}</span>`;
+                                    } else {
+                                        popupContent += `<span class="text-gray-500">明天尚未發布資訊</span>`;
+                                    }
+                                } else {
+                                    popupContent += `正常上班上課`;
+                                }
                                 L.popup().setLatLng(e.latlng).setContent(popupContent).openOn(map); // 顯示彈出視窗
                             }
                         });
@@ -379,15 +534,33 @@
         function renderOutlyingIslandsInfo() {
             let content = '';
             outlyingIslands.forEach(island => {
-                const info = suspensionData[island];
-                const statusText = info ? info.description : '正常上班上課';
-                const statusColor = info ? getStyle(info.status).fillColor : '#3b82f6';
-                content += `
-                    <div class="mb-2">
-                        <h4 class="font-semibold text-gray-800">${island}</h4>
-                        <p class="text-sm" style="color:${statusColor};">${statusText}</p>
-                    </div>
-                `;
+                const islandInfo = suspensionData[island];
+                if (islandInfo) {
+                    const todayStatusColor = getStyle(islandInfo.today.status).fillColor;
+                    const tomorrowStatusColor = getStyle(islandInfo.tomorrow.status).fillColor;
+
+                    content += `
+                        <div class="mb-2">
+                            <h4 class="font-semibold text-gray-800">${island}</h4>
+                            <p class="text-sm" style="color:${todayStatusColor};">${islandInfo.today.text}</p>
+                    `;
+                    // 顯示明天的狀態，如果明確提到或與今天狀態不同
+                    if (islandInfo.hasSpecificTomorrow || islandInfo.tomorrow.status !== 'normal') {
+                        content += `<p class="text-sm" style="color:${tomorrowStatusColor};">${islandInfo.tomorrow.text}</p>`;
+                    } else { // 如果沒有明確的明天資訊且明天狀態為正常 (預設值)
+                         content += `<p class="text-sm text-gray-500">明天尚未發布資訊</p>`;
+                    }
+                    content += `</div>`;
+                } else {
+                    // 預設為離島沒有資訊時的顯示
+                    content += `
+                        <div class="mb-2">
+                            <h4 class="font-semibold text-gray-800">${island}</h4>
+                            <p class="text-sm text-blue-600">今天照常上班、照常上課</p>
+                            <p class="text-sm text-gray-500">明天尚未發布資訊</p> <!-- 這裡也改為尚未發布資訊 -->
+                        </div>
+                    `;
+                }
             });
             if (content === '') {
                 outlyingIslandsInfoEl.innerHTML = `<p class="text-gray-600">目前無離島停班停課資訊。</p>`;
@@ -442,7 +615,6 @@
             }
         }
 
-
         // 顯示錯誤訊息彈出視窗的函式
         function showErrorMessage() {
             errorMessageEl.textContent = lastErrorMessage;
@@ -462,6 +634,29 @@
         window.addEventListener('click', (event) => {
             if (event.target == errorDetailModal) {
                 errorDetailModal.style.display = 'none';
+            }
+        });
+
+        // --- 側邊欄開關邏輯 ---
+        function toggleSidebar() {
+            sidebar.classList.toggle('open');
+            sidebarOverlay.classList.toggle('open');
+            // 當側邊欄打開時，禁止 body 滾動
+            document.body.style.overflow = sidebar.classList.contains('open') ? 'hidden' : 'auto';
+        }
+
+        // 漢堡選單按鈕事件監聽器
+        sidebarToggleBtn.addEventListener('click', toggleSidebar);
+
+        // 遮罩層點擊事件監聽器 (點擊遮罩關閉側邊欄)
+        sidebarOverlay.addEventListener('click', toggleSidebar);
+
+        // 處理視窗大小改變事件，確保桌面版側邊欄始終顯示
+        window.addEventListener('resize', () => {
+            if (window.innerWidth >= 768) { // md breakpoint
+                sidebar.classList.remove('open');
+                sidebarOverlay.classList.remove('open');
+                document.body.style.overflow = 'auto'; // 確保桌面版可以滾動
             }
         });
 
