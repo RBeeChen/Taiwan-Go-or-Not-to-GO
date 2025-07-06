@@ -192,7 +192,7 @@
             <div>
                 <h1 class="text-2xl font-bold text-gray-800">台灣停班停課資訊地圖</h1>
                 <p class="text-xs text-gray-500 mt-1">
-                    地理圖資：<a href="https://github.com/RBeeChen/Taiwan-Go-or-Not-to-GO/raw/refs/heads/main/twmap.json" target="_blank" class="text-blue-500 hover:underline">RBeeChen/Taiwan-Go-or-Not-to-GO</a> | 
+                    地理圖資：<a href="https://github.com/RBeeChen/taiwan-typhoon-map/raw/refs/heads/main/twmap.json" target="_blank" class="text-blue-500 hover:underline">RBeeChen/taiwan-typhoon-map</a> | 
                     停班課資訊：<a href="https://www.ncdr.nat.gov.tw/" target="_blank" class="text-blue-500 hover:underline">國家災害防救科技中心</a>
                 </p>
                 <!-- 新增相關連結 -->
@@ -324,8 +324,9 @@
         const outlyingIslands = ['澎湖縣', '金門縣', '連江縣', '臺東縣蘭嶼鄉', '臺東縣綠島鄉'];
 
         // --- URL 定義 ---
-        const countyGeojsonURL = 'https://github.com/RBeeChen/Taiwan-Go-or-Not-to-GO/raw/refs/heads/main/twmap.json'; // 縣市層級 GeoJSON
-        const townGeojsonURL = 'https://github.com/RBeeChen/Taiwan-Go-or-Not-to-GO/releases/download/JSON/TW_town.json'; // 鄉鎮層級 GeoJSON
+        // 更新 GeoJSON URL 以反映新的 Repository 名稱
+        const countyGeojsonURL = 'https://github.com/RBeeChen/taiwan-typhoon-map/raw/refs/heads/main/twmap.json'; // 縣市層級 GeoJSON
+        const townGeojsonURL = 'https://github.com/RBeeChen/taiwan-typhoon-map/releases/download/JSON/TW_town.json'; // 鄉鎮層級 GeoJSON
         // 停班課資訊來源為國家災害防救科技中心 (NCDR) 的 RSS 訂閱源。
         // NCDR 整合了行政院人事行政總處等各級政府機關的發布資訊，是目前最即時且完整的停班課資料來源。
         const rssFeedURL = 'https://alerts.ncdr.nat.gov.tw/RssAtomFeed.ashx?AlertType=33';
