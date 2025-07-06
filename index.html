@@ -302,6 +302,7 @@
         const sidebar = document.getElementById('sidebar');
         const sidebarToggleBtn = document.getElementById('sidebar-toggle-btn');
         const sidebarOverlay = document.getElementById('sidebar-overlay');
+        let zoomControlEl; // 宣告 Leaflet 縮放控制按鈕的變數
 
         const suspensionData = {}; 
         // 定義需要特別顯示的離島名稱，用於從 RSS 資料中篩選
@@ -508,6 +509,10 @@
 
                 mapLoader.style.display = 'none'; // 隱藏載入中旋轉圖示
 
+                // 在地圖初始化後獲取 Leaflet 縮放控制按鈕的引用
+                zoomControlEl = document.querySelector('.leaflet-control-zoom');
+
+
                 // 資料載入後渲染離島資訊
                 renderOutlyingIslandsInfo();
                 // 載入並渲染天氣快報
@@ -639,10 +644,20 @@
 
         // --- 側邊欄開關邏輯 ---
         function toggleSidebar() {
-            sidebar.classList.toggle('open');
+            const isOpen = sidebar.classList.toggle('open');
             sidebarOverlay.classList.toggle('open');
-            // 當側邊欄打開時，禁止 body 滾動
-            document.body.style.overflow = sidebar.classList.contains('open') ? 'hidden' : 'auto';
+            document.body.style.overflow = isOpen ? 'hidden' : 'auto';
+
+            // 隱藏/顯示 Leaflet 縮放控制按鈕
+            if (zoomControlEl) {
+                zoomControlEl.style.display = isOpen ? 'none' : 'block';
+            }
+
+            // 強制 Leaflet 地圖重新計算尺寸，確保版面正確
+            // 延遲 300ms 配合 CSS 側邊欄過渡動畫
+            setTimeout(() => {
+                map.invalidateSize();
+            }, 300); 
         }
 
         // 漢堡選單按鈕事件監聽器
@@ -657,6 +672,12 @@
                 sidebar.classList.remove('open');
                 sidebarOverlay.classList.remove('open');
                 document.body.style.overflow = 'auto'; // 確保桌面版可以滾動
+                // 確保桌面版縮放按鈕顯示
+                if (zoomControlEl) {
+                    zoomControlEl.style.display = 'block';
+                }
+                // 桌面版尺寸變化時也重新計算地圖尺寸
+                map.invalidateSize();
             }
         });
 
