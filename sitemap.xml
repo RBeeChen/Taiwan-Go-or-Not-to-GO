@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://RBeeChen.github.io/taiwan-typhoon-map</loc> <!-- 請替換為您網頁的實際 URL，例如：https://RBeeChen.github.io/taiwan-typhoon-map/index.html -->
+    <loc>https://RBeeChen.github.io/taiwan-typhoon-map/index.html</loc> <!-- 請替換為您網頁的實際 URL，例如：https://RBeeChen.github.io/taiwan-typhoon-map/index.html -->
     <lastmod>2025-07-06</lastmod> <!-- 請根據您網頁最後更新日期調整，格式為YYYY-MM-DD -->
     <changefreq>daily</changefreq> <!-- 建議設定為 daily 或 weekly，因為停班課資訊會頻繁更新 -->
     <priority>1.0</priority> <!-- 您的主要頁面，設定為最高優先級 -->
