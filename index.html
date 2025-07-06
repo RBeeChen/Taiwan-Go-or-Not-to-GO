@@ -228,7 +228,11 @@
                     </div>
                     <div class="flex items-center">
                         <div class="w-5 h-5 rounded-md mr-2" style="background-color: #ef4444;"></div>
-                        <span class="text-sm text-gray-700">停止上班或上課</span>
+                        <span class="text-sm text-gray-700">全天停止上班或上課</span>
+                    </div>
+                    <div class="flex items-center">
+                        <div class="w-5 h-5 rounded-md mr-2" style="background-color: #facc15;"></div> <!-- 黃色 -->
+                        <span class="text-sm text-gray-700">非全天停止上班或上課 (例如下午停課)</span>
                     </div>
                      <div class="flex items-center">
                         <div class="w-5 h-5 rounded-md mr-2" style="background-color: #f97316;"></div>
@@ -338,7 +342,8 @@
         function getStyle(status) {
             const baseStyle = { weight: 1.5, opacity: 1, color: 'white', fillOpacity: 0.8 };
             switch (status) {
-                case 'suspended': return { ...baseStyle, fillColor: '#ef4444' }; // 紅色：停止上班上課 (包含下午/晚上停課)
+                case 'suspended': return { ...baseStyle, fillColor: '#ef4444' }; // 紅色：全天停止上班上課
+                case 'partial_time': return { ...baseStyle, fillColor: '#facc15' }; // 黃色：非全天停止上班上課 (下午/晚上)
                 case 'partial': return { ...baseStyle, fillColor: '#f97316' };   // 橘色：部分區域或特定人員
                 case 'normal': default: return { ...baseStyle, fillColor: '#3b82f6' }; // 藍色：正常上班上課
             }
@@ -390,6 +395,10 @@
 
                 // 現在可以安全地遍歷 entries
                 entries.forEach(entry => {
+                    // 初始化 todayMatch 和 tomorrowMatch，避免在某些情況下未定義的錯誤
+                    let todayMatch = null; 
+                    let tomorrowMatch = null;
+
                     const summary = entry.querySelector('summary')?.textContent || '';
                     const cleanSummary = summary.replace(/\[.*?\]/g, '').trim(); // 移除括號內的資訊
                     if (!cleanSummary.includes(':')) return; // 如果沒有冒號分隔符則跳過
@@ -455,18 +464,34 @@
 
                     // --- 修正狀態判斷邏輯 ---
                     const determineStatus = (stmt) => {
-                        let currentStatus = 'normal';
-                        const isFullSuspension = stmt.includes('停止上班') || stmt.includes('停止上課') || stmt.includes('已達停止上班及上課標準');
-                        const isAfternoonOrEveningSuspension = stmt.includes('下午') || stmt.includes('晚上');
+                        let currentStatus = 'normal'; // 預設為正常
+
+                        const isSuspendedKeyword = stmt.includes('停止上班') || stmt.includes('停止上課') || stmt.includes('已達停止上班及上課標準');
+                        const isAfternoonOrEvening = stmt.includes('下午') || stmt.includes('晚上');
                         const isPartialAreaOrPersonnel = stmt.includes('除了') || stmt.includes('未達') || stmt.includes('僅');
 
-                        if (isFullSuspension || isAfternoonOrEveningSuspension) {
-                            currentStatus = 'suspended'; // 全天停課或下午/晚上停課都標記為紅色
-                        } else if (isPartialAreaOrPersonnel) {
-                            currentStatus = 'partial'; // 僅部分區域或特定人員停課標記為橘色
+                        // 優先判斷：部分區域或特定人員 (橘色)
+                        if (isPartialAreaOrPersonnel) {
+                            currentStatus = 'partial'; 
+                        } 
+                        // 次要判斷：非全天停止上班或上課 (黃色)
+                        // 必須包含停課關鍵字且有下午/晚上資訊，且不屬於部分區域
+                        else if (isSuspendedKeyword && isAfternoonOrEvening) {
+                            currentStatus = 'partial_time'; 
                         }
+                        // 最後判斷：全天停止上班或上課 (紅色)
+                        // 必須包含停課關鍵字，且不屬於黃色或橘色情況
+                        else if (isSuspendedKeyword) { 
+                            currentStatus = 'suspended'; 
+                        }
+                        // 如果以上都不符合，則維持 'normal' (藍色)
                         return currentStatus;
                     };
+
+
+                    // 重新獲取 todayMatch 和 tomorrowMatch，確保它們在作用域內
+                    todayMatch = statusText.match(/(今天[^。；]*?(停止上班|照常上班|已達停止上班及上課標準)[^。；]*?)/);
+                    tomorrowMatch = statusText.match(/(明天[^。；]*?(停止上班|照常上班|已達停止上班及上課標準)[^。；]*?)/);
 
 
                     if (todayMatch && todayMatch[0]) {
