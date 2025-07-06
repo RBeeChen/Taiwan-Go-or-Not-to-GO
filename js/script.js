@@ -447,12 +447,19 @@ async function renderAllTownships() {
     // 重新繪製所有鄉鎮圖層
     L.geoJSON(townGeojson, {
         style: feature => {
+            // 安全檢查：確保 feature.properties 存在
+            if (!feature.properties) {
+                console.warn("GeoJSON feature missing properties:", feature);
+                return getStyle('no_info'); // 返回預設樣式
+            }
+
             const townKey = normalizeName(feature.properties.county + feature.properties.town);
             const countyName = normalizeName(feature.properties.county);
             const displayDateStr = formatDateToYYYYMMDD(currentDisplayDate);
             const todayActualDateStr = formatDateToYYYYMMDD(new Date());
 
-            let statusToDisplay = 'no_info';
+            let statusToDisplay = 'no_info'; // 預設為灰色
+
             let townInfo = suspensionData[townKey];
             let countyAggregatedInfo = suspensionData[countyName];
 
@@ -460,20 +467,9 @@ async function renderAllTownships() {
             if (townInfo && townInfo.dates[displayDateStr]) {
                 statusToDisplay = townInfo.dates[displayDateStr].status;
             } 
-            
             // 如果鄉鎮沒有精確狀態，則使用縣市的聚合狀態
-            // 只有當縣市的聚合狀態為「全縣市停班課」或「全縣市正常」時才統一著色
             else if (countyAggregatedInfo && countyAggregatedInfo.dates[displayDateStr]) {
-                const aggregatedStatus = countyAggregatedInfo.dates[displayDateStr].status;
-                if (aggregatedStatus === 'suspended' || aggregatedStatus === 'normal') {
-                    statusToDisplay = aggregatedStatus;
-                } else {
-                    // 如果縣市是「部分區域」停班課，則鄉鎮預設為「沒有公布資訊」或「正常」
-                    statusToDisplay = 'no_info'; // 預設為灰色，表示沒有針對此鄉鎮的明確資訊
-                    if (displayDateStr === todayActualDateStr) {
-                        statusToDisplay = 'normal'; // 如果是今天且無資訊，則預設正常
-                    }
-                }
+                statusToDisplay = countyAggregatedInfo.dates[displayDateStr].status;
             }
             // 如果沒有任何資訊，且是今天，則預設正常
             else if (displayDateStr === todayActualDateStr) {
@@ -483,6 +479,12 @@ async function renderAllTownships() {
             return getStyle(statusToDisplay);
         },
         onEachFeature: (feature, layer) => {
+            // 安全檢查：確保 feature.properties 存在
+            if (!feature.properties) {
+                console.warn("GeoJSON feature missing properties during onEachFeature:", feature);
+                return; 
+            }
+
             const townKey = normalizeName(feature.properties.county + feature.properties.town);
             const countyName = normalizeName(feature.properties.county);
             const townDisplayName = feature.properties.county + feature.properties.town;
@@ -509,15 +511,7 @@ async function renderAllTownships() {
                     if (townInfo && townInfo.dates[displayDateStr]) {
                         statusToDisplay = townInfo.dates[displayDateStr].status;
                     } else if (countyAggregatedInfo && countyAggregatedInfo.dates[displayDateStr]) {
-                        const aggregatedStatus = countyAggregatedInfo.dates[displayDateStr].status;
-                        if (aggregatedStatus === 'suspended' || aggregatedStatus === 'normal') {
-                            statusToDisplay = aggregatedStatus;
-                        } else {
-                            statusToDisplay = 'no_info';
-                            if (displayDateStr === todayActualDateStr) {
-                                statusToDisplay = 'normal';
-                            }
-                        }
+                        statusToDisplay = countyAggregatedInfo.dates[displayDateStr].status;
                     } else if (displayDateStr === todayActualDateStr) {
                         statusToDisplay = 'normal';
                     }
@@ -545,9 +539,8 @@ async function renderAllTownships() {
                     let countyAggregatedInfo = suspensionData[countyName];
 
                     // 今天的狀態
-                    if (!townDisplayDateStatus && countyAggregatedInfo && countyAggregatedInfo.dates[displayDateStrForPopup]) {
-                        const aggregatedStatus = countyAggregatedInfo.dates[displayDateStrForPopup].status;
-                        if (aggregatedStatus === 'suspended' || aggregatedStatus === 'normal' || aggregatedStatus === 'partial_time' || aggregatedStatus === 'partial') {
+                    if (!townDisplayDateStatus) { // 如果鄉鎮沒有自己的資訊
+                        if (countyAggregatedInfo && countyAggregatedInfo.dates[displayDateStrForPopup]) {
                             townDisplayDateStatus = countyAggregatedInfo.dates[displayDateStrForPopup];
                         } else {
                             townDisplayDateStatus = { status: 'no_info', text: '尚未發布資訊' };
@@ -555,23 +548,15 @@ async function renderAllTownships() {
                                 townDisplayDateStatus = { status: 'normal', text: '照常上班、照常上課' };
                             }
                         }
-                    } else if (!townDisplayDateStatus) {
-                        townDisplayDateStatus = { status: 'no_info', text: '尚未發布資訊' };
-                        if (displayDateStrForPopup === todayActualDateStrForPopup) {
-                            townDisplayDateStatus = { status: 'normal', text: '照常上班、照常上課' };
-                        }
                     }
 
                     // 明天的狀態
-                    if (!townNextDayStatus && countyAggregatedInfo && countyAggregatedInfo.dates[nextDayStrForPopup]) {
-                        const aggregatedStatus = countyAggregatedInfo.dates[nextDayStrForPopup].status;
-                        if (aggregatedStatus === 'suspended' || aggregatedStatus === 'normal' || aggregatedStatus === 'partial_time' || aggregatedStatus === 'partial') {
+                    if (!townNextDayStatus) { // 如果鄉鎮沒有自己的資訊
+                        if (countyAggregatedInfo && countyAggregatedInfo.dates[nextDayStrForPopup]) {
                             townNextDayStatus = countyAggregatedInfo.dates[nextDayStrForPopup];
                         } else {
                             townNextDayStatus = { status: 'no_info', text: '尚未發布資訊' };
                         }
-                    } else if (!townNextDayStatus) {
-                        townNextDayStatus = { status: 'no_info', text: '尚未發布資訊' };
                     }
 
                     popupContent += `<span style="color:${getStyle(townDisplayDateStatus.status).fillColor};">
@@ -647,6 +632,12 @@ async function renderMap() { // 這是地圖渲染的主要入口點
 function refreshMapDisplay(displayDate) { // 接收 displayDate 參數
     // 重新評估所有現有鄉鎮圖層的樣式
     affectedTownshipLayers.eachLayer(layer => {
+        // 安全檢查：確保 feature.properties 存在
+        if (!layer.feature || !layer.feature.properties) {
+            console.warn("GeoJSON layer feature missing properties during refreshMapDisplay:", layer);
+            return; 
+        }
+
         const feature = layer.feature;
         const townKey = normalizeName(feature.properties.county + feature.properties.town);
         const countyName = normalizeName(feature.properties.county);
@@ -660,15 +651,7 @@ function refreshMapDisplay(displayDate) { // 接收 displayDate 參數
         if (townInfo && townInfo.dates[displayDateStr]) {
             statusToDisplay = townInfo.dates[displayDateStr].status;
         } else if (countyAggregatedInfo && countyAggregatedInfo.dates[displayDateStr]) {
-            const aggregatedStatus = countyAggregatedInfo.dates[displayDateStr].status;
-            if (aggregatedStatus === 'suspended' || aggregatedStatus === 'normal') {
-                statusToDisplay = aggregatedStatus;
-            } else {
-                statusToDisplay = 'no_info';
-                if (displayDateStr === todayActualDateStr) {
-                    statusToDisplay = 'normal';
-                }
-            }
+            statusToDisplay = countyAggregatedInfo.dates[displayDateStr].status;
         } else if (displayDateStr === todayActualDateStr) {
             statusToDisplay = 'normal';
         }
