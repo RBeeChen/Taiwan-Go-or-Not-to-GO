@@ -2,7 +2,7 @@
 // 負責地圖初始化、圖層管理、地圖事件
 
 import { getStyle, highlightStyle, normalizeName, formatDateToYYYYMMDD, formatDisplayDate } from './utils.js';
-import { suspensionData, countyGeojsonURL, townGeojsonURL } from './data.js';
+import { suspensionData, countyGeojsonURL, townGeojsonURL, jsonFeedURL } from './data.js'; // 導入 jsonFeedURL
 
 // Leaflet 地圖實例
 export const map = L.map('map', {
@@ -103,11 +103,6 @@ export async function renderMap(updateInfoPanel, loadWeatherBulletins, mapLoader
     let lastErrorMessage = ''; // Local variable for this function
 
     try {
-        await fetch(`${proxyURL}${encodeURIComponent(jsonFeedURL)}`) // Dummy fetch to ensure proxy is active or to catch initial network errors
-            .then(response => {
-                if (!response.ok) throw new Error(`Initial data fetch failed: ${response.status}`);
-            });
-
         // 載入縣市層級 GeoJSON 資料
         const countyResponse = await fetch(`${proxyURL}${encodeURIComponent(countyGeojsonURL)}`);
         if (!countyResponse.ok) throw new Error(`County GeoJSON fetch failed: ${countyResponse.status} - ${countyResponse.statusText}`);
@@ -280,8 +275,12 @@ export async function renderMap(updateInfoPanel, loadWeatherBulletins, mapLoader
 
             affectedTownshipLayers.addTo(map);
 
-            mapLoader.style.display = 'none';
+            mapLoader.style.display = 'none'; // 隱藏載入中旋轉圖示
 
+            // 在地圖初始化後獲取 Leaflet 縮放控制按鈕的引用
+            // 這裡不再直接賦值給 zoomControlEl，而是讓 ui.js 處理
+            // 因為 zoomControlEl 是 ui.js 模組的內部變數
+            
             requestAnimationFrame(() => {
                 if (map._container && map._container.offsetWidth > 0 && map._container.offsetHeight > 0) {
                     map.invalidateSize(true); 
@@ -292,16 +291,9 @@ export async function renderMap(updateInfoPanel, loadWeatherBulletins, mapLoader
         });
     } catch (error) {
         console.error("無法渲染地圖或載入資料:", error);
-        lastErrorMessage = error.message;
-        mapLoader.innerHTML = `
-            <div class="text-center p-4">
-                <p class="text-red-600 font-bold text-lg">地圖渲染失敗</p>
-                <p class="text-gray-700 mt-2">發生未知錯誤，請重新整理頁面。</p>
-                <button id="show-error-btn" class="mt-4 px-4 py-2 bg-red-500 text-white rounded-md shadow-md hover:bg-red-600 transition-colors duration-200">
-                    顯示錯誤詳情
-                </button>
-            </div>
-        `;
-        document.getElementById('show-error-btn').addEventListener('click', showErrorMessage);
+        // 將錯誤訊息傳遞給 showErrorMessage
+        showErrorMessage(`地圖渲染或資料載入失敗：${error.message}`);
+        mapLoader.style.display = 'none'; // 確保載入器隱藏
+        showErrorBtn.classList.remove('hidden'); // 顯示錯誤詳情按鈕
     }
 }
