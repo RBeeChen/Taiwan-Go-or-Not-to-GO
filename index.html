@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>台灣停班停課資訊地圖 (即時資訊版)</title>
+    
+    <!-- Leaflet.js CSS for mapping -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+     crossorigin=""/>
+
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Google Fonts for better typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+
+    <style>
+        /* 基本樣式，確保頁面佔滿整個視窗並設定字體 */
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: #f0f2f5;
+        }
+        /* 地圖容器樣式，確保地圖能響應式填充空間 */
+        #map {
+            height: 100%;
+            width: 100%;
+            background-color: #a2d2ff;
+        }
+        /* Leaflet 彈出視窗和提示框的樣式，增加透明度和圓角 */
+        .leaflet-popup-content-wrapper, .leaflet-popup-tip {
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(5px);
+            box-shadow: 0 3px 14px rgba(0,0,0,0.4);
+            border-radius: 8px;
+        }
+        .leaflet-popup-content {
+            font-size: 14px;
+            font-weight: 500;
+            line-height: 1.6;
+        }
+        .leaflet-tooltip {
+            background-color: rgba(0, 0, 0, 0.7);
+            border: none;
+            color: white;
+            border-radius: 4px;
+            box-shadow: none;
+        }
+        /* 載入中旋轉圖示的樣式 */
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border-left-color: #09f;
+            animation: spin 1s ease infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        /* 錯誤詳情彈出視窗的樣式 */
+        #error-detail-modal {
+            display: none; /* 預設隱藏 */
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.7);
+            backdrop-filter: blur(5px);
+            align-items: center;
+            justify-content: center;
+        }
+        #error-detail-content {
+            background-color: #fefefe;
+            margin: auto;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            width: 80%; /* 響應式寬度 */
+            max-width: 500px; /* 最大寬度限制 */
+            position: relative;
+        }
+        #error-detail-close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        #error-detail-close:hover,
+        #error-detail-close:focus {
+            color: black;
+            text-decoration: none;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body class="flex flex-col h-screen">
+
+    <!-- 頁首區塊 -->
+    <header class="bg-white shadow-md z-20">
+        <div class="container mx-auto px-4 py-3">
+            <h1 class="text-2xl font-bold text-gray-800">台灣停班停課資訊地圖</h1>
+            <p class="text-xs text-gray-500 mt-1">
+                地理圖資：<a href="https://github.com/RBeeChen/Taiwan-Go-or-Not-to-GO/raw/refs/heads/main/twmap.json" target="_blank" class="text-blue-500 hover:underline">RBeeChen/Taiwan-Go-or-Not-to-GO</a> | 
+                停班課資訊：<a href="https://www.ncdr.nat.gov.tw/" target="_blank" class="text-blue-500 hover:underline">國家災害防救科技中心</a>
+            </p>
+            <p id="update-time" class="text-xs text-gray-600 font-semibold mt-1">資料更新時間：載入中...</p>
+        </div>
+    </header>
+
+    <!-- 主要內容區塊 -->
+    <main class="flex-grow flex flex-col md:flex-row overflow-hidden">
+        
+        <!-- 側邊資訊欄 -->
+        <aside class="w-full md:w-1/3 lg:w-1/4 p-4 bg-gray-50 border-r border-gray-200 overflow-y-auto">
+            <h2 class="text-lg font-bold text-gray-700 mb-2">詳細資訊</h2>
+            <div id="info-panel" class="p-4 bg-white rounded-lg shadow min-h-[100px]">
+                <p class="text-gray-600">請將滑鼠移至或點擊地圖上的縣市以查看資訊。</p>
+            </div>
+            <div class="mt-4">
+                <h3 class="text-md font-bold text-gray-700 mb-2">圖例</h3>
+                <div class="space-y-2">
+                    <div class="flex items-center">
+                        <div class="w-5 h-5 rounded-md mr-2" style="background-color: #3b82f6;"></div>
+                        <span class="text-sm text-gray-700">正常上班上課</span>
+                    </div>
+                    <div class="flex items-center">
+                        <div class="w-5 h-5 rounded-md mr-2" style="background-color: #ef4444;"></div>
+                        <span class="text-sm text-gray-700">停止上班或上課</span>
+                    </div>
+                     <div class="flex items-center">
+                        <div class="w-5 h-5 rounded-md mr-2" style="background-color: #f97316;"></div>
+                        <span class="text-sm text-gray-700">部分區域或特定人員</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 離島資訊區塊 -->
+            <div class="mt-6">
+                <h2 class="text-lg font-bold text-gray-700 mb-2">離島資訊</h2>
+                <div id="outlying-islands-info" class="p-4 bg-white rounded-lg shadow min-h-[80px]">
+                    <p class="text-gray-600">正在載入離島停班停課資訊...</p>
+                </div>
+            </div>
+
+            <!-- 天氣快報區塊 -->
+            <div class="mt-6">
+                <h2 class="text-lg font-bold text-gray-700 mb-2">天氣快報</h2>
+                <div id="weather-bulletin-info" class="p-4 bg-white rounded-lg shadow min-h-[80px]">
+                    <p class="text-gray-600">正在載入天氣快報資訊...</p>
+                </div>
+            </div>
+        </aside>
+
+        <!-- 地圖容器區塊 -->
+        <section id="map-container" class="flex-grow h-full w-full relative">
+            <div id="map"></div>
+            <div id="map-loader" class="absolute inset-0 bg-white bg-opacity-80 flex items-center justify-center z-50">
+                <div class="text-center">
+                    <div class="spinner mx-auto"></div>
+                    <p class="mt-4 text-gray-700 font-semibold">正在載入即時資料...</p>
+                    <button id="show-error-btn" class="mt-4 px-4 py-2 bg-red-500 text-white rounded-md shadow-md hover:bg-red-600 transition-colors duration-200 hidden">
+                        顯示錯誤詳情
+                    </button>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- 錯誤詳情彈出視窗 -->
+    <div id="error-detail-modal" class="flex">
+        <div id="error-detail-content">
+            <span id="error-detail-close" class="close">&times;</span>
+            <h3 class="text-xl font-bold text-gray-800 mb-4">錯誤詳情</h3>
+            <p id="error-message" class="text-gray-700 font-mono text-sm whitespace-pre-wrap"></p>
+        </div>
+    </div>
+
+    <!-- Leaflet.js 腳本 -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+     crossorigin=""></script>
+
+    <script>
+        // --- 1. 初始化地圖 ---
+        const map = L.map('map', {
+            zoomControl: true 
+        }).setView([23.9, 121], 7);
+        
+        // --- 2. 全域變數與 DOM 元素 ---
+        let geojsonLayer;
+        const infoPanel = document.getElementById('info-panel');
+        const updateTimeEl = document.getElementById('update-time');
+        const mapLoader = document.getElementById('map-loader');
+        const showErrorBtn = document.getElementById('show-error-btn');
+        const errorDetailModal = document.getElementById('error-detail-modal');
+        const errorMessageEl = document.getElementById('error-message');
+        const errorDetailCloseBtn = document.getElementById('error-detail-close');
+        const outlyingIslandsInfoEl = document.getElementById('outlying-islands-info'); // 離島資訊元素
+        const weatherBulletinInfoEl = document.getElementById('weather-bulletin-info'); // 天氣快報資訊元素
+        let lastErrorMessage = ''; // 儲存最後一次錯誤訊息的變數
+
+        const suspensionData = {}; 
+        // 定義需要特別顯示的離島名稱，用於從 RSS 資料中篩選
+        const outlyingIslands = ['澎湖縣', '金門縣', '連江縣', '臺東縣蘭嶼鄉', '臺東縣綠島鄉'];
+
+        // --- URL 定義 ---
+        // 使用代理來解決 GeoJSON 檔案的 CORS 問題
+        const geojsonURL = 'https://github.com/RBeeChen/Taiwan-Go-or-Not-to-GO/raw/refs/heads/main/twmap.json';
+        const rssFeedURL = 'https://alerts.ncdr.nat.gov.tw/RssAtomFeed.ashx?AlertType=33';
+        const cwaWarningRSSURL = 'https://www.cwa.gov.tw/rss/Data/cwa_warning.xml'; // 中央氣象局天氣快報 RSS
+        const proxyURL = 'https://api.allorigins.win/raw?url='; // CORS 代理服務
+
+        // --- 3. 樣式邏輯 ---
+        function getStyle(status) {
+            const baseStyle = { weight: 1.5, opacity: 1, color: 'white', fillOpacity: 0.8 };
+            switch (status) {
+                case 'suspended': return { ...baseStyle, fillColor: '#ef4444' }; // 紅色：停止上班上課
+                case 'partial': return { ...baseStyle, fillColor: '#f97316' };   // 橘色：部分區域或特定人員
+                case 'normal': default: return { ...baseStyle, fillColor: '#3b82f6' }; // 藍色：正常上班上課
+            }
+        }
+        const highlightStyle = { weight: 4, color: '#333', fillOpacity: 0.95 }; // 滑鼠懸停時的邊框樣式
+
+        // --- 4. 資料抓取與處理 ---
+        // 標準化縣市名稱，處理「臺」與「台」的差異
+        function normalizeCountyName(name) { return name.replace('臺', '台'); }
+
+        // 從 NCDR RSS 訂閱源載入停班停課資料
+        async function loadSuspensionData() {
+            try {
+                const response = await fetch(`${proxyURL}${encodeURIComponent(rssFeedURL)}`);
+                if (!response.ok) throw new Error(`RSS Feed fetch failed: ${response.status}`);
+                
+                const xmlString = await response.text();
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(xmlString, "application/xml");
+
+                // 更新資料更新時間顯示
+                const updatedTime = xmlDoc.querySelector('feed > updated')?.textContent;
+                if (updatedTime) {
+                    updateTimeEl.textContent = `資料更新時間：${new Date(updatedTime).toLocaleString('zh-TW')}`;
+                } else {
+                    updateTimeEl.textContent = `資料更新時間：無法取得`;
+                }
+
+                // 處理 RSS 訂閱源中的每個條目
+                const entries = xmlDoc.querySelectorAll('entry');
+                entries.forEach(entry => {
+                    const summary = entry.querySelector('summary')?.textContent || '';
+                    const cleanSummary = summary.replace(/\[.*?\]/g, '').trim(); // 移除括號內的資訊
+                    if (!cleanSummary.includes(':')) return; // 如果沒有冒號分隔符則跳過
+
+                    let [county, statusText] = cleanSummary.split(/:(.*)/s);
+                    if (!county || !statusText) return;
+
+                    county = normalizeCountyName(county.trim());
+                    statusText = statusText.trim();
+
+                    if (statusText.includes('尚未列入警戒區')) return; // 跳過非警戒區域
+
+                    let status = 'normal';
+                    if (statusText.includes('停止上班') || statusText.includes('停止上課')) {
+                        status = 'suspended';
+                        // 檢查是否有部分停班課的條件
+                        if (statusText.includes('下午') || statusText.includes('晚上') || statusText.includes('除了') || statusText.includes('未達') || statusText.includes('僅')) {
+                            status = 'partial';
+                        }
+                    }
+                    suspensionData[county] = { status, description: statusText };
+                });
+
+            } catch (error) {
+                console.error("無法載入停班停課資料:", error);
+                updateTimeEl.textContent = '停班課資料載入失敗，將顯示預設地圖狀態。';
+                updateTimeEl.classList.add('text-red-600');
+                throw error; // 重新拋出錯誤，讓 renderMap 的 catch 區塊處理
+            }
+        }
+
+        // 使用 GeoJSON 資料和停班停課資訊渲染地圖
+        async function renderMap() {
+            mapLoader.style.display = 'flex'; // 顯示載入中旋轉圖示
+            showErrorBtn.classList.add('hidden'); // 初始隱藏錯誤按鈕
+            lastErrorMessage = ''; // 清除之前的錯誤訊息
+            
+            try {
+                await loadSuspensionData(); // 首先載入停班停課資料
+                
+                // 從指定 URL 抓取 GeoJSON 資料，現在使用代理
+                const response = await fetch(`${proxyURL}${encodeURIComponent(geojsonURL)}`);
+                if (!response.ok) throw new Error(`GeoJSON fetch failed: ${response.status} - ${response.statusText}`);
+                const data = await response.json();
+                
+                // 建立 Leaflet GeoJSON 圖層
+                geojsonLayer = L.geoJSON(data, {
+                    style: feature => {
+                        const countyName = normalizeCountyName(feature.properties.COUNTYNAME);
+                        const info = suspensionData[countyName];
+                        return getStyle(info ? info.status : 'normal'); // 根據停班停課狀態應用樣式
+                    },
+                    onEachFeature: (feature, layer) => {
+                        const countyName = normalizeCountyName(feature.properties.COUNTYNAME);
+                        const displayName = feature.properties.COUNTYNAME;
+                        layer.bindTooltip(displayName, { permanent: false, direction: 'center' }); // 滑鼠懸停時顯示提示
+
+                        layer.on({
+                            mouseover: e => {
+                                const hoveredLayer = e.target;
+                                hoveredLayer.setStyle(highlightStyle); // 滑鼠懸停時高亮顯示
+                                if (!L.Browser.ie) hoveredLayer.bringToFront(); // 移到最上層以獲得更好的可見性
+                                
+                                const info = suspensionData[countyName];
+                                if (info) {
+                                    const statusColor = getStyle(info.status).fillColor;
+                                    infoPanel.innerHTML = `<h3 class="font-bold text-lg text-gray-900">${displayName}</h3><p class="mt-1 font-semibold" style="color:${statusColor};">${info.description}</p>`;
+                                } else {
+                                    infoPanel.innerHTML = `<h3 class="font-bold text-lg text-gray-900">${displayName}</h3><p class="mt-1 font-semibold text-blue-600">正常上班上課</p><p class="text-xs text-gray-400 mt-2">(無特別發布之警戒資訊)</p>`;
+                                }
+                            },
+                            mouseout: e => {
+                                geojsonLayer.resetStyle(e.target); // 滑鼠移開時重置樣式
+                                infoPanel.innerHTML = `<p class="text-gray-600">請將滑鼠移至或點擊地圖上的縣市以查看資訊。</p>`;
+                            },
+                            click: e => {
+                                map.fitBounds(e.target.getBounds()); // 縮放至點擊的縣市
+                                const info = suspensionData[countyName];
+                                const popupContent = `<strong class="text-base">${displayName}</strong><br>${info ? info.description : '正常上班上課'}`;
+                                L.popup().setLatLng(e.latlng).setContent(popupContent).openOn(map); // 顯示彈出視窗
+                            }
+                        });
+                    }
+                }).addTo(map);
+
+                // 將地圖視野調整到 GeoJSON 圖層的邊界
+                if (geojsonLayer.getBounds().isValid()) {
+                    map.fitBounds(geojsonLayer.getBounds(), { padding: [20, 20] });
+                }
+
+                mapLoader.style.display = 'none'; // 隱藏載入中旋轉圖示
+
+                // 資料載入後渲染離島資訊
+                renderOutlyingIslandsInfo();
+                // 載入並渲染天氣快報
+                await loadWeatherBulletins();
+
+            } catch (error) {
+                console.error("無法渲染地圖或載入資料:", error);
+                lastErrorMessage = error.message; // 儲存錯誤訊息
+                mapLoader.innerHTML = `
+                    <div class="text-center p-4">
+                        <p class="text-red-600 font-bold text-lg">地圖渲染失敗</p>
+                        <p class="text-gray-700 mt-2">發生未知錯誤，請重新整理頁面。</p>
+                        <button id="show-error-btn" class="mt-4 px-4 py-2 bg-red-500 text-white rounded-md shadow-md hover:bg-red-600 transition-colors duration-200">
+                            顯示錯誤詳情
+                        </button>
+                    </div>
+                `;
+                // 如果按鈕被重新渲染，則重新綁定事件監聽器
+                document.getElementById('show-error-btn').addEventListener('click', showErrorMessage);
+            }
+        }
+
+        // 渲染離島資訊的函式
+        function renderOutlyingIslandsInfo() {
+            let content = '';
+            outlyingIslands.forEach(island => {
+                const info = suspensionData[island];
+                const statusText = info ? info.description : '正常上班上課';
+                const statusColor = info ? getStyle(info.status).fillColor : '#3b82f6';
+                content += `
+                    <div class="mb-2">
+                        <h4 class="font-semibold text-gray-800">${island}</h4>
+                        <p class="text-sm" style="color:${statusColor};">${statusText}</p>
+                    </div>
+                `;
+            });
+            if (content === '') {
+                outlyingIslandsInfoEl.innerHTML = `<p class="text-gray-600">目前無離島停班停課資訊。</p>`;
+            } else {
+                outlyingIslandsInfoEl.innerHTML = content;
+            }
+        }
+
+        // 新增載入天氣快報資料的函式
+        async function loadWeatherBulletins() {
+            try {
+                const response = await fetch(`${proxyURL}${encodeURIComponent(cwaWarningRSSURL)}`);
+                if (!response.ok) throw new Error(`CWA Warning RSS fetch failed: ${response.status}`);
+                
+                const xmlString = await response.text();
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(xmlString, "application/xml");
+
+                const items = xmlDoc.querySelectorAll('item');
+                let content = '';
+                if (items.length === 0) {
+                    content = `<p class="text-gray-600">目前無天氣快報。</p>`;
+                } else {
+                    items.forEach(item => {
+                        const title = item.querySelector('title')?.textContent || '無標題';
+                        const link = item.querySelector('link')?.textContent || '#';
+                        const pubDate = item.querySelector('pubDate')?.textContent;
+                        let formattedDate = '';
+                        if (pubDate) {
+                            try {
+                                // 將日期時間轉換為本地格式
+                                formattedDate = new Date(pubDate).toLocaleString('zh-TW');
+                            } catch (e) {
+                                formattedDate = pubDate; // 如果解析失敗，則使用原始日期
+                            }
+                        }
+
+                        content += `
+                            <div class="mb-2 pb-2 border-b border-gray-100 last:border-b-0">
+                                <a href="${link}" target="_blank" class="text-blue-600 hover:underline font-semibold">${title}</a>
+                                ${formattedDate ? `<p class="text-xs text-gray-500 mt-1">${formattedDate}</p>` : ''}
+                            </div>
+                        `;
+                    });
+                }
+                weatherBulletinInfoEl.innerHTML = content;
+
+            } catch (error) {
+                console.error("無法載入天氣快報資料:", error);
+                weatherBulletinInfoEl.innerHTML = `<p class="text-red-600">天氣快報載入失敗。</p>`;
+            }
+        }
+
+
+        // 顯示錯誤訊息彈出視窗的函式
+        function showErrorMessage() {
+            errorMessageEl.textContent = lastErrorMessage;
+            errorDetailModal.style.display = 'flex'; // 顯示彈出視窗
+        }
+
+        // 「顯示錯誤詳情」按鈕的事件監聽器（初始綁定）
+        // 如果載入器內容被替換，此監聽器將在 catch 區塊中重新綁定
+        showErrorBtn.addEventListener('click', showErrorMessage);
+
+        // 彈出視窗關閉按鈕的事件監聽器
+        errorDetailCloseBtn.addEventListener('click', () => {
+            errorDetailModal.style.display = 'none'; // 隱藏彈出視窗
+        });
+
+        // 如果使用者點擊彈出視窗外部，則隱藏彈出視窗
+        window.addEventListener('click', (event) => {
+            if (event.target == errorDetailModal) {
+                errorDetailModal.style.display = 'none';
+            }
+        });
+
+        // --- 5. 初始執行 ---
+        renderMap();
+
+    </script>
+</body>
+</html>
