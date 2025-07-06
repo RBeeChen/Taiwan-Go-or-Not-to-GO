@@ -355,6 +355,25 @@
                 const parser = new DOMParser();
                 const xmlDoc = parser.parseFromString(xmlString, "application/xml");
 
+                // 檢查 XML 解析是否成功，如果失敗則拋出錯誤
+                const parseError = xmlDoc.querySelector('parsererror');
+                if (parseError) {
+                    console.error("XML Parsing Error:", parseError.textContent);
+                    throw new Error("Failed to parse RSS XML: " + parseError.textContent);
+                }
+
+                // 確保 xmlDoc 是一個有效的 Document 物件
+                if (!(xmlDoc instanceof Document)) {
+                    throw new Error("Parsed XML is not a valid Document object.");
+                }
+
+                const entries = xmlDoc.querySelectorAll('entry');
+
+                // 再次確認 entries 是否為 NodeList，以防萬一
+                if (!entries || !(entries instanceof NodeList)) {
+                    throw new Error("Could not retrieve 'entry' elements from RSS feed.");
+                }
+
                 // 更新資料更新時間顯示
                 const updatedTime = xmlDoc.querySelector('feed > updated')?.textContent;
                 if (updatedTime) {
@@ -363,7 +382,7 @@
                     updateTimeEl.textContent = `資料更新時間：無法取得`;
                 }
 
-                // 處理 RSS 訂閱源中的每個條目
+                // 現在可以安全地遍歷 entries
                 entries.forEach(entry => {
                     const summary = entry.querySelector('summary')?.textContent || '';
                     const cleanSummary = summary.replace(/\[.*?\]/g, '').trim(); // 移除括號內的資訊
@@ -529,7 +548,7 @@
                             mouseover: e => {
                                 const hoveredLayer = e.target;
                                 hoveredLayer.setStyle(highlightStyle); // 滑鼠懸停時高亮顯示
-                                if (!L.Browser.ie) hoveredLayer.bringToFront(); // 移到最上層以獲得更好的可見性
+                                // 縣市圖層不需要 bringToFront，因為鄉鎮圖層會獨立置頂
                                 
                                 const countyInfo = suspensionData[countyName];
                                 let panelContent = `<h3 class="font-bold text-lg text-gray-900">${displayName}</h3>`;
@@ -564,7 +583,8 @@
                                             const townTodayStatusColor = getStyle(info.today.status).fillColor;
                                             const townTomorrowStatusColor = getStyle(info.tomorrow.status).fillColor;
                                             townshipDetails += `<div class="mt-2 pl-4 border-l-2 border-gray-200">`;
-                                            townshipDetails += `<h4 class="font-semibold text-gray-700">${townFeature.properties.town}</h4>`; // 修正為 townFeature.properties.town
+                                            // 修正：確保顯示鄉鎮名稱，如果沒有則顯示「未知鄉鎮」
+                                            townshipDetails += `<h4 class="font-semibold text-gray-700">${townFeature.properties.town || '未知鄉鎮'}</h4>`; 
                                             townshipDetails += `<p class="text-sm" style="color:${townTodayStatusColor};">${info.today.text}</p>`;
                                             if (info.hasSpecificTomorrow || info.tomorrow.status !== 'normal') {
                                                 townshipDetails += `<p class="text-sm" style="color:${townTomorrowStatusColor};">${info.tomorrow.text}</p>`;
@@ -611,7 +631,8 @@
                                                 const info = suspensionData[townKey];
                                                 const townTodayStatusColor = getStyle(info.today.status).fillColor;
                                                 const townTomorrowStatusColor = getStyle(info.tomorrow.status).fillColor;
-                                                popupContent += `<br><span class="ml-2 font-semibold">${townFeature.properties.town}:</span>`; // 修正為 townFeature.properties.town
+                                                // 修正：確保顯示鄉鎮名稱，如果沒有則顯示「未知鄉鎮」
+                                                popupContent += `<br><span class="ml-2 font-semibold">${townFeature.properties.town || '未知鄉鎮'}:</span>`; 
                                                 popupContent += `<br><span class="ml-4 text-sm" style="color:${townTodayStatusColor};">${info.today.text}</span>`;
                                                 if (info.hasSpecificTomorrow || info.tomorrow.status !== 'normal') {
                                                     popupContent += `<br><span class="ml-4 text-sm" style="color:${townTomorrowStatusColor};">${info.tomorrow.text}</span>`;
