@@ -292,7 +292,10 @@
         }).setView([23.9, 121], 7);
         
         // --- 2. 全域變數與 DOM 元素 ---
-        let geojsonLayer;
+        let geojsonLayer; // 縣市層 GeoJSON 圖層
+        let townGeojson = null; // 鄉鎮層 GeoJSON 原始資料
+        let townshipOverlayLayer = null; // 動態疊加的鄉鎮圖層
+
         const infoPanel = document.getElementById('info-panel');
         const updateTimeEl = document.getElementById('update-time');
         const mapLoader = document.getElementById('map-loader');
@@ -310,16 +313,15 @@
         const sidebarOverlay = document.getElementById('sidebar-overlay');
         let zoomControlEl; // 宣告 Leaflet 縮放控制按鈕的變數
 
-        const suspensionData = {}; 
-        // 定義需要特別顯示的離島名稱，用於從 RSS 資料中篩選
+        const suspensionData = {}; // 儲存停班停課資訊，鍵可以是縣市名或縣市鄉鎮名
+        // 定義需要特別顯示的離島名稱，用於從 RSS 資料中篩選 (這些通常是鄉鎮層級)
         const outlyingIslands = ['澎湖縣', '金門縣', '連江縣', '臺東縣蘭嶼鄉', '臺東縣綠島鄉'];
 
         // --- URL 定義 ---
-        // 使用代理來解決 GeoJSON 檔案的 CORS 問題
-        const geojsonURL = 'https://github.com/RBeeChen/Taiwan-Go-or-Not-to-GO/raw/refs/heads/main/twmap.json';
+        const countyGeojsonURL = 'https://github.com/RBeeChen/Taiwan-Go-or-Not-to-GO/raw/refs/heads/main/twmap.json'; // 縣市層級 GeoJSON
+        const townGeojsonURL = 'https://github.com/RBeeChen/Taiwan-Go-or-Not-to-GO/releases/download/JSON/TW_town.json'; // 鄉鎮層級 GeoJSON
         // 停班課資訊來源為國家災害防救科技中心 (NCDR) 的 RSS 訂閱源。
         // NCDR 整合了行政院人事行政總處等各級政府機關的發布資訊，是目前最即時且完整的停班課資料來源。
-        // 因此，此處的 RSS 連結是正確的，無需更改為行政院人事行政總處的網頁連結。
         const rssFeedURL = 'https://alerts.ncdr.nat.gov.tw/RssAtomFeed.ashx?AlertType=33';
         const cwaWarningRSSURL = 'https://www.cwa.gov.tw/rss/Data/cwa_warning.xml'; // 中央氣象局天氣快報 RSS
         // 將 CORS 代理服務更換為 corsproxy.io
@@ -337,13 +339,14 @@
         const highlightStyle = { weight: 4, color: '#333', fillOpacity: 0.95 }; // 滑鼠懸停時的邊框樣式
 
         // --- 4. 資料抓取與處理 ---
-        // 標準化縣市名稱，處理「臺」與「台」的差異
-        function normalizeCountyName(name) { return name.replace('臺', '台'); }
+        // 標準化縣市/鄉鎮名稱，處理「臺」與「台」的差異，並移除括號內容
+        function normalizeName(name) { 
+            return name.replace('臺', '台').replace(/\(.*?\)/g, '').trim(); 
+        }
 
         // 從 NCDR RSS 訂閱源載入停班停課資料
         async function loadSuspensionData() {
             try {
-                // 注意：corsproxy.io 的使用方式是將目標 URL 放在代理 URL 後面
                 const response = await fetch(`${proxyURL}${encodeURIComponent(rssFeedURL)}`);
                 if (!response.ok) throw new Error(`RSS Feed fetch failed: ${response.status}`);
                 
@@ -366,47 +369,67 @@
                     const cleanSummary = summary.replace(/\[.*?\]/g, '').trim(); // 移除括號內的資訊
                     if (!cleanSummary.includes(':')) return; // 如果沒有冒號分隔符則跳過
 
-                    let [countyRaw, statusText] = cleanSummary.split(/:(.*)/s);
-                    if (!countyRaw || !statusText) return;
+                    let [countyTownRaw, statusText] = cleanSummary.split(/:(.*)/s);
+                    if (!countyTownRaw || !statusText) return;
 
+                    countyTownRaw = countyTownRaw.trim();
                     statusText = statusText.trim();
-
-                    // 優化縣市名稱提取邏輯：
-                    // 1. 移除括號內的內容 (如 "(東引鄉)")
-                    // 2. 移除 "部分區域", "災害應變中心" 等描述性文字
-                    // 3. 確保只保留縣市的基礎名稱 (例如 "臺南市" 而非 "臺南市部分區域")
-                    let baseCountyName = countyRaw
-                        .replace(/\(.*?\)/g, '') // 移除括號內的內容
-                        .replace(/部分區域/g, '') // 移除「部分區域」
-                        .replace(/災害應變中心/g, '') // 移除「災害應變中心」
-                        .trim();
-
-                    // 再次檢查是否能匹配到標準的縣市鄉區結尾，確保只取到縣市名稱
-                    const finalCountyMatch = baseCountyName.match(/^(.*?)(市|縣|鄉|區)/);
-                    if (finalCountyMatch && finalCountyMatch[1] && finalCountyMatch[2]) {
-                        baseCountyName = finalCountyMatch[1].trim() + finalCountyMatch[2].trim();
-                    } else {
-                        // 如果經過上述處理仍無法得到標準縣市名稱，則退回使用原始的 countyRaw
-                        // 這樣能避免因過度處理而丟失縣市名稱，並依賴 normalizeCountyName 處理「臺/台」
-                        baseCountyName = countyRaw.trim(); 
-                    }
-                    
-                    // 標準化縣市名稱（將「臺」轉換為「台」）
-                    const county = normalizeCountyName(baseCountyName);
 
                     if (statusText.includes('尚未列入警戒區')) return; // 跳過非警戒區域
 
-                    // 初始化縣市的今天和明天狀態為正常，明天預設為「尚未發布資訊」
-                    const countyData = suspensionData[county] || {
+                    let targetKey = ''; // 儲存在 suspensionData 中的鍵 (可能是縣市名或縣市鄉鎮名)
+                    let parentCountyName = ''; // 所屬縣市的標準化名稱
+                    let isTownshipSpecific = false; // 標記是否為鄉鎮層級的資訊
+
+                    // 嘗試從 countyTownRaw 中提取最精確的縣市/鄉鎮名稱
+                    // 1. 優先匹配完整的縣市鄉鎮名稱 (例如 "臺東縣蘭嶼鄉")
+                    // 檢查是否為離島的完整名稱 (這些在 GeoJSON 中也是獨立的 Feature)
+                    const foundOutlyingIsland = outlyingIslands.find(island => countyTownRaw.includes(island));
+                    if (foundOutlyingIsland) {
+                        targetKey = normalizeName(foundOutlyingIsland); // 使用標準化後的完整鄉鎮名作為鍵
+                        isTownshipSpecific = true;
+                        // 從完整離島名稱中提取所屬縣市
+                        const countyMatch = foundOutlyingIsland.match(/^(.*?)(縣|市)/);
+                        if (countyMatch) {
+                            parentCountyName = normalizeName(countyMatch[1].trim() + countyMatch[2].trim());
+                        } else {
+                            // 萬一無法從離島名稱中提取縣市，則嘗試從原始字串中提取
+                            parentCountyName = normalizeName(countyTownRaw.split('縣')[0].split('市')[0] + (countyTownRaw.includes('縣') ? '縣' : '市'));
+                        }
+                    } else {
+                        // 2. 嘗試解析為一般性的「縣市鄉鎮」模式 (例如 "高雄市小港區")
+                        // 這個正規表達式會匹配 "縣" 或 "市" 後面接著 "鄉", "鎮", "市", "區"
+                        const townshipPattern = /(.*?)(縣|市)(.*?)(鄉|鎮|市|區)/;
+                        const match = countyTownRaw.match(townshipPattern);
+
+                        if (match) {
+                            // 這是個鄉鎮層級的資訊
+                            targetKey = normalizeName(countyTownRaw); // 使用標準化後的完整鄉鎮名作為鍵
+                            parentCountyName = normalizeName(match[1].trim() + match[2].trim()); // 提取所屬縣市
+                            isTownshipSpecific = true;
+                        } else {
+                            // 3. 如果以上都無法匹配，則假設是縣市層級的資訊 (例如 "高雄市")
+                            targetKey = normalizeName(countyTownRaw.replace(/部分區域|災害應變中心/g, '').trim());
+                            parentCountyName = targetKey; // 所屬縣市就是自己
+                            isTownshipSpecific = false;
+                        }
+                    }
+                    
+                    // 確保 parentCountyName 也被標準化
+                    parentCountyName = normalizeName(parentCountyName);
+
+                    // 初始化縣市/鄉鎮的資料結構
+                    const dataKey = targetKey;
+                    const entryData = suspensionData[dataKey] || {
                         today: { status: 'normal', text: '今天照常上班、照常上課' },
                         tomorrow: { status: 'normal', text: '明天尚未發布資訊' }, // 預設為尚未發布
-                        hasSpecificTomorrow: false // 標記明天是否有明確資訊
+                        hasSpecificTomorrow: false,
+                        isTownship: isTownshipSpecific,
+                        parentCounty: parentCountyName // 儲存所屬縣市名稱
                     };
 
-                    // 使用正規表達式嘗試提取包含「今天」或「明天」的語句
-                    // 匹配「今天」開頭的語句，直到句號或分號
+                    // 解析今天和明天的狀態
                     const todayMatch = statusText.match(/(今天[^。；]*?(停止上班|照常上班|已達停止上班及上課標準)[^。；]*?)/);
-                    // 匹配「明天」開頭的語句，直到句號或分號
                     const tomorrowMatch = statusText.match(/(明天[^。；]*?(停止上班|照常上班|已達停止上班及上課標準)[^。；]*?)/);
 
                     if (todayMatch && todayMatch[0]) {
@@ -417,7 +440,7 @@
                         if (isSuspended) {
                             currentStatus = isPartial ? 'partial' : 'suspended';
                         }
-                        countyData.today = { status: currentStatus, text: stmt };
+                        entryData.today = { status: currentStatus, text: stmt };
                     } else if (!statusText.includes('今天') && !statusText.includes('明天')) {
                         // 如果沒有明確的「今天」或「明天」語句，則將整個 statusText 視為今天的狀態
                         let currentStatus = 'normal';
@@ -427,7 +450,7 @@
                             currentStatus = isPartial ? 'partial' : 'suspended';
                         }
                         // 為確保語意清晰，在前面加上「今天」
-                        countyData.today = { status: currentStatus, text: `今天${statusText}` }; 
+                        entryData.today = { status: currentStatus, text: `今天${statusText}` }; 
                     }
 
                     if (tomorrowMatch && tomorrowMatch[0]) {
@@ -438,11 +461,27 @@
                         if (isSuspended) {
                             currentStatus = isPartial ? 'partial' : 'suspended';
                         }
-                        countyData.tomorrow = { status: currentStatus, text: stmt };
-                        countyData.hasSpecificTomorrow = true;
+                        entryData.tomorrow = { status: currentStatus, text: stmt };
+                        entryData.hasSpecificTomorrow = true;
                     }
 
-                    suspensionData[county] = countyData;
+                    suspensionData[dataKey] = entryData;
+
+                    // 如果是鄉鎮層級的資訊，也要確保其所屬的縣市有資料，並標記該縣市有鄉鎮細部資訊
+                    if (isTownshipSpecific) {
+                        if (!suspensionData[parentCountyName]) {
+                            suspensionData[parentCountyName] = {
+                                today: { status: 'normal', text: '今天照常上班、照常上課' },
+                                tomorrow: { status: 'normal', text: '明天尚未發布資訊' },
+                                hasSpecificTomorrow: false,
+                                isTownship: false,
+                                parentCounty: parentCountyName,
+                                hasTownshipSpecificData: false // 預設為 false，下面會更新
+                            };
+                        }
+                        // 標記所屬縣市有鄉鎮細部資訊，用於地圖疊加判斷
+                        suspensionData[parentCountyName].hasTownshipSpecificData = true;
+                    }
                 });
 
             } catch (error) {
@@ -460,24 +499,30 @@
             lastErrorMessage = ''; // 清除之前的錯誤訊息
             
             try {
-                await loadSuspensionData(); // 首先載入停班停課資料
+                // 首先載入停班停課資料
+                await loadSuspensionData(); 
                 
-                // 從指定 URL 抓取 GeoJSON 資料，現在使用代理
-                const response = await fetch(`${proxyURL}${encodeURIComponent(geojsonURL)}`);
-                if (!response.ok) throw new Error(`GeoJSON fetch failed: ${response.status} - ${response.statusText}`);
-                const data = await response.json();
-                
-                // 建立 Leaflet GeoJSON 圖層
-                geojsonLayer = L.geoJSON(data, {
+                // 載入縣市層級 GeoJSON 資料
+                const countyResponse = await fetch(`${proxyURL}${encodeURIComponent(countyGeojsonURL)}`);
+                if (!countyResponse.ok) throw new Error(`County GeoJSON fetch failed: ${countyResponse.status} - ${countyResponse.statusText}`);
+                const countyData = await countyResponse.json();
+
+                // 載入鄉鎮層級 GeoJSON 資料 (不立即添加到地圖)
+                const townResponse = await fetch(`${proxyURL}${encodeURIComponent(townGeojsonURL)}`);
+                if (!townResponse.ok) throw new Error(`Town GeoJSON fetch failed: ${townResponse.status} - ${townResponse.statusText}`);
+                townGeojson = await townResponse.json(); // 儲存到全域變數
+
+                // 建立 Leaflet 縣市層 GeoJSON 圖層
+                geojsonLayer = L.geoJSON(countyData, {
                     style: feature => {
-                        const countyName = normalizeCountyName(feature.properties.COUNTYNAME);
+                        const countyName = normalizeName(feature.properties.COUNTYNAME);
                         const info = suspensionData[countyName];
                         // 地圖顏色主要反映今天的狀態，如果沒有今天資訊則預設正常
                         return getStyle(info && info.today ? info.today.status : 'normal'); 
                     },
                     onEachFeature: (feature, layer) => {
-                        const countyName = normalizeCountyName(feature.properties.COUNTYNAME);
-                        const displayName = feature.properties.COUNTYNAME;
+                        const countyName = normalizeName(feature.properties.COUNTYNAME); // 標準化縣市名稱
+                        const displayName = feature.properties.COUNTYNAME; // 原始顯示名稱
                         layer.bindTooltip(displayName, { permanent: false, direction: 'center' }); // 滑鼠懸停時顯示提示
 
                         layer.on({
@@ -486,53 +531,115 @@
                                 hoveredLayer.setStyle(highlightStyle); // 滑鼠懸停時高亮顯示
                                 if (!L.Browser.ie) hoveredLayer.bringToFront(); // 移到最上層以獲得更好的可見性
                                 
-                                const info = suspensionData[countyName];
-                                if (info) {
-                                    let panelContent = `<h3 class="font-bold text-lg text-gray-900">${displayName}</h3>`;
-                                    
-                                    // 顯示今天的狀態
-                                    const todayStatusColor = getStyle(info.today.status).fillColor;
-                                    panelContent += `<p class="mt-1 font-semibold" style="color:${todayStatusColor};">${info.today.text}</p>`;
+                                const countyInfo = suspensionData[countyName];
+                                let panelContent = `<h3 class="font-bold text-lg text-gray-900">${displayName}</h3>`;
+                                
+                                // 顯示縣市今天的狀態
+                                const todayStatusColor = getStyle(countyInfo && countyInfo.today ? countyInfo.today.status : 'normal').fillColor;
+                                panelContent += `<p class="mt-1 font-semibold" style="color:${todayStatusColor};">${countyInfo && countyInfo.today ? countyInfo.today.text : '今天照常上班、照常上課'}</p>`;
 
-                                    // 顯示明天的狀態
-                                    const tomorrowStatusColor = getStyle(info.tomorrow.status).fillColor;
-                                    // 判斷是否顯示「明天尚未發布資訊」或實際的明天資訊
-                                    if (info.hasSpecificTomorrow || info.tomorrow.status !== 'normal') {
-                                        panelContent += `<p class="mt-1 font-semibold" style="color:${tomorrowStatusColor};">${info.tomorrow.text}</p>`;
-                                    } else { // 如果沒有明確的明天資訊且明天狀態為正常 (預設值)
-                                        panelContent += `<p class="mt-1 font-semibold text-gray-500">明天尚未發布資訊</p>`;
+                                // 顯示縣市明天的狀態
+                                const tomorrowStatusColor = getStyle(countyInfo && countyInfo.tomorrow ? countyInfo.tomorrow.status : 'normal').fillColor;
+                                if (countyInfo && (countyInfo.hasSpecificTomorrow || countyInfo.tomorrow.status !== 'normal')) {
+                                    panelContent += `<p class="mt-1 font-semibold" style="color:${tomorrowStatusColor};">${countyInfo.tomorrow.text}</p>`;
+                                } else {
+                                    panelContent += `<p class="mt-1 font-semibold text-gray-500">明天尚未發布資訊</p>`;
+                                }
+
+                                // 檢查是否有鄉鎮細部資訊需要疊加顯示
+                                if (countyInfo && countyInfo.hasTownshipSpecificData && townGeojson) {
+                                    // 移除之前的鄉鎮疊加層（如果存在）
+                                    if (townshipOverlayLayer) {
+                                        map.removeLayer(townshipOverlayLayer);
+                                        townshipOverlayLayer = null;
                                     }
 
-                                    infoPanel.innerHTML = panelContent;
-                                } else {
-                                    infoPanel.innerHTML = `<h3 class="font-bold text-lg text-gray-900">${displayName}</h3><p class="mt-1 font-semibold text-blue-600">今天照常上班、照常上課</p><p class="mt-1 font-semibold text-gray-500">明天尚未發布資訊</p><p class="text-xs text-gray-400 mt-2">(無特別發布之警戒資訊)</p>`;
+                                    let townshipDetails = '';
+                                    const filteredTownFeatures = townGeojson.features.filter(f => normalizeName(f.properties.county) === countyName);
+
+                                    // 篩選出有停班課資訊的鄉鎮
+                                    const affectedTownships = filteredTownFeatures.filter(townFeature => {
+                                        const townKey = normalizeName(townFeature.properties.county + townFeature.properties.town);
+                                        const townInfo = suspensionData[townKey];
+                                        return townInfo && (townInfo.today.status !== 'normal' || townInfo.hasSpecificTomorrow || townInfo.tomorrow.status !== 'normal');
+                                    });
+
+                                    if (affectedTownships.length > 0) {
+                                        panelContent += `<h4 class="font-bold text-gray-700 mt-4">受影響鄉鎮資訊:</h4>`;
+                                        townshipOverlayLayer = L.geoJSON(affectedTownships, {
+                                            style: feature => {
+                                                const townKey = normalizeName(feature.properties.county + feature.properties.town);
+                                                const info = suspensionData[townKey];
+                                                // 鄉鎮層級的顏色反映其自身的狀態
+                                                return getStyle(info && info.today ? info.today.status : 'normal'); 
+                                            },
+                                            onEachFeature: (feature, layer) => {
+                                                const townKey = normalizeName(feature.properties.county + feature.properties.town);
+                                                const townDisplayName = feature.properties.county + feature.properties.town;
+                                                const info = suspensionData[townKey];
+                                                let popupContent = `<strong class="text-base">${townDisplayName}</strong><br>`;
+                                                if (info) {
+                                                    popupContent += `<span style="color:${getStyle(info.today.status).fillColor};">${info.today.text}</span><br>`;
+                                                    if (info.hasSpecificTomorrow || info.tomorrow.status !== 'normal') {
+                                                        popupContent += `<span style="color:${getStyle(info.tomorrow.status).fillColor};">${info.tomorrow.text}</span>`;
+                                                    } else {
+                                                        popupContent += `<span class="text-gray-500">明天尚未發布資訊</span>`;
+                                                    }
+                                                } else {
+                                                    popupContent += `正常上班上課`;
+                                                }
+                                                layer.bindPopup(popupContent); // 綁定鄉鎮的彈出視窗
+
+                                                // 將鄉鎮資訊添加到面板
+                                                const townTodayStatusColor = getStyle(info.today.status).fillColor;
+                                                const townTomorrowStatusColor = getStyle(info.tomorrow.status).fillColor;
+                                                townshipDetails += `<div class="mt-2 pl-4 border-l-2 border-gray-200">`;
+                                                townshipDetails += `<h4 class="font-semibold text-gray-700">${feature.properties.town}</h4>`;
+                                                townshipDetails += `<p class="text-sm" style="color:${townTodayStatusColor};">${info.today.text}</p>`;
+                                                if (info.hasSpecificTomorrow || info.tomorrow.status !== 'normal') {
+                                                    townshipDetails += `<p class="text-sm" style="color:${townTomorrowStatusColor};">${info.tomorrow.text}</p>`;
+                                                } else {
+                                                    townshipDetails += `<p class="text-sm text-gray-500">明天尚未發布資訊</p>`;
+                                                }
+                                                townshipDetails += `</div>`;
+                                            }
+                                        }).addTo(map);
+                                        panelContent += townshipDetails; // 將鄉鎮詳細資訊加入面板
+                                    }
                                 }
+
+                                infoPanel.innerHTML = panelContent;
                             },
                             mouseout: e => {
-                                geojsonLayer.resetStyle(e.target); // 滑鼠移開時重置樣式
+                                geojsonLayer.resetStyle(e.target); // 滑鼠移開時重置縣市樣式
                                 infoPanel.innerHTML = `<p class="text-gray-600">請將滑鼠移至或點擊地圖上的縣市以查看資訊。</p>`;
+                                // 移除鄉鎮疊加層
+                                if (townshipOverlayLayer) {
+                                    map.removeLayer(townshipOverlayLayer);
+                                    townshipOverlayLayer = null;
+                                }
                             },
                             click: e => {
                                 map.fitBounds(e.target.getBounds()); // 縮放至點擊的縣市
-                                const info = suspensionData[countyName];
+                                const countyInfo = suspensionData[countyName];
                                 let popupContent = `<strong class="text-base">${displayName}</strong><br>`;
-                                if (info) {
-                                    popupContent += `<span style="color:${getStyle(info.today.status).fillColor};">${info.today.text}</span><br>`;
-                                    if (info.hasSpecificTomorrow || info.tomorrow.status !== 'normal') {
-                                        popupContent += `<span style="color:${getStyle(info.tomorrow.status).fillColor};">${info.tomorrow.text}</span>`;
+                                if (countyInfo) {
+                                    popupContent += `<span style="color:${getStyle(countyInfo.today.status).fillColor};">${countyInfo.today.text}</span><br>`;
+                                    if (countyInfo.hasSpecificTomorrow || countyInfo.tomorrow.status !== 'normal') {
+                                        popupContent += `<span style="color:${getStyle(countyInfo.tomorrow.status).fillColor};">${countyInfo.tomorrow.text}</span>`;
                                     } else {
                                         popupContent += `<span class="text-gray-500">明天尚未發布資訊</span>`;
                                     }
                                 } else {
                                     popupContent += `正常上班上課`;
                                 }
-                                L.popup().setLatLng(e.latlng).setContent(popupContent).openOn(map); // 顯示彈出視窗
+                                L.popup().setLatLng(e.latlng).setContent(popupContent).openOn(map); // 顯示縣市彈出視窗
                             }
                         });
                     }
                 }).addTo(map);
 
-                // 將地圖視野調整到 GeoJSON 圖層的邊界
+                // 將地圖視野調整到縣市 GeoJSON 圖層的邊界
                 if (geojsonLayer.getBounds().isValid()) {
                     map.fitBounds(geojsonLayer.getBounds(), { padding: [20, 20] });
                 }
@@ -569,7 +676,7 @@
         function renderOutlyingIslandsInfo() {
             let content = '';
             outlyingIslands.forEach(island => {
-                const islandInfo = suspensionData[island];
+                const islandInfo = suspensionData[normalizeName(island)]; // 使用 normalizeName 確保匹配
                 if (islandInfo) {
                     const todayStatusColor = getStyle(islandInfo.today.status).fillColor;
                     const tomorrowStatusColor = getStyle(islandInfo.tomorrow.status).fillColor;
