@@ -546,26 +546,25 @@
                                     panelContent += `<p class="mt-1 font-semibold text-gray-500">明天尚未發布資訊</p>`;
                                 }
 
-                                // 這裡不再動態疊加鄉鎮圖層，因為我們希望直接顯示
-                                // 但仍然可以在面板中顯示鄉鎮受影響資訊
+                                // 在面板中顯示鄉鎮受影響資訊
                                 if (countyInfo && countyInfo.hasTownshipSpecificData) {
                                     let townshipDetails = '';
                                     const filteredTownFeatures = townGeojson.features.filter(f => normalizeName(f.properties.county) === countyName);
                                     const affectedTownshipsInCounty = filteredTownFeatures.filter(townFeature => {
                                         const townKey = normalizeName(townFeature.properties.county + townFeature.properties.town);
                                         const townInfo = suspensionData[townKey];
-                                        return townInfo && (townInfo.today.status !== 'normal' || townInfo.hasSpecificTomorrow || townInfo.tomorrow.status !== 'normal');
+                                        return townInfo && (townInfo.today.status !== 'normal' || townInfo.tomorrow.status !== 'normal');
                                     });
 
                                     if (affectedTownshipsInCounty.length > 0) {
                                         panelContent += `<h4 class="font-bold text-gray-700 mt-4">受影響鄉鎮資訊:</h4>`;
-                                        affectedTownshipsInCounty.forEach(townFeature => {
+                                        affectedTownshipsInCounty.forEach(townFeature => { // 使用 townFeature
                                             const townKey = normalizeName(townFeature.properties.county + townFeature.properties.town);
                                             const info = suspensionData[townKey];
                                             const townTodayStatusColor = getStyle(info.today.status).fillColor;
                                             const townTomorrowStatusColor = getStyle(info.tomorrow.status).fillColor;
                                             townshipDetails += `<div class="mt-2 pl-4 border-l-2 border-gray-200">`;
-                                            townshipDetails += `<h4 class="font-semibold text-gray-700">${feature.properties.town}</h4>`; // 這裡應該顯示鄉鎮名稱
+                                            townshipDetails += `<h4 class="font-semibold text-gray-700">${townFeature.properties.town}</h4>`; // 修正為 townFeature.properties.town
                                             townshipDetails += `<p class="text-sm" style="color:${townTodayStatusColor};">${info.today.text}</p>`;
                                             if (info.hasSpecificTomorrow || info.tomorrow.status !== 'normal') {
                                                 townshipDetails += `<p class="text-sm" style="color:${townTomorrowStatusColor};">${info.tomorrow.text}</p>`;
@@ -583,7 +582,6 @@
                             mouseout: e => {
                                 countyGeojsonLayer.resetStyle(e.target); // 滑鼠移開時重置縣市樣式
                                 infoPanel.innerHTML = `<p class="text-gray-600">請將滑鼠移至或點擊地圖上的縣市以查看資訊。</p>`;
-                                // 這裡不再移除鄉鎮疊加層，因為它們是直接繪製的
                             },
                             click: e => {
                                 map.fitBounds(e.target.getBounds()); // 縮放至點擊的縣市
@@ -603,17 +601,17 @@
                                         const affectedTownshipsInCounty = filteredTownFeatures.filter(townFeature => {
                                             const townKey = normalizeName(townFeature.properties.county + townFeature.properties.town);
                                             const townInfo = suspensionData[townKey];
-                                            return townInfo && (townInfo.today.status !== 'normal' || townInfo.hasSpecificTomorrow || townInfo.tomorrow.status !== 'normal');
+                                            return townInfo && (townInfo.today.status !== 'normal' || townInfo.tomorrow.status !== 'normal');
                                         });
 
                                         if (affectedTownshipsInCounty.length > 0) {
                                             popupContent += `<br><strong class="text-base">受影響鄉鎮:</strong>`;
-                                            affectedTownshipsInCounty.forEach(townFeature => {
+                                            affectedTownshipsInCounty.forEach(townFeature => { // 使用 townFeature
                                                 const townKey = normalizeName(townFeature.properties.county + townFeature.properties.town);
                                                 const info = suspensionData[townKey];
                                                 const townTodayStatusColor = getStyle(info.today.status).fillColor;
                                                 const townTomorrowStatusColor = getStyle(info.tomorrow.status).fillColor;
-                                                popupContent += `<br><span class="ml-2 font-semibold">${feature.properties.town}:</span>`; // 這裡應該顯示鄉鎮名稱
+                                                popupContent += `<br><span class="ml-2 font-semibold">${townFeature.properties.town}:</span>`; // 修正為 townFeature.properties.town
                                                 popupContent += `<br><span class="ml-4 text-sm" style="color:${townTodayStatusColor};">${info.today.text}</span>`;
                                                 if (info.hasSpecificTomorrow || info.tomorrow.status !== 'normal') {
                                                     popupContent += `<br><span class="ml-4 text-sm" style="color:${townTomorrowStatusColor};">${info.tomorrow.text}</span>`;
@@ -673,6 +671,7 @@
                                 layer.bindTooltip(townDisplayName, { permanent: false, direction: 'center' });
                             }
                         }).addTo(affectedTownshipLayers); // 添加到鄉鎮圖層群組
+                        affectedTownshipLayers.bringToFront(); // 將鄉鎮圖層群組置於最上層
                     }
                 }
 
