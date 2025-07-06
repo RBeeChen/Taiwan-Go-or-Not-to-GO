@@ -221,7 +221,8 @@
         const geojsonURL = 'https://github.com/RBeeChen/Taiwan-Go-or-Not-to-GO/raw/refs/heads/main/twmap.json';
         const rssFeedURL = 'https://alerts.ncdr.nat.gov.tw/RssAtomFeed.ashx?AlertType=33';
         const cwaWarningRSSURL = 'https://www.cwa.gov.tw/rss/Data/cwa_warning.xml'; // 中央氣象局天氣快報 RSS
-        const proxyURL = 'https://api.allorigins.win/raw?url='; // CORS 代理服務
+        // 將 CORS 代理服務更換為 corsproxy.io
+        const proxyURL = 'https://corsproxy.io/?'; 
 
         // --- 3. 樣式邏輯 ---
         function getStyle(status) {
@@ -241,6 +242,7 @@
         // 從 NCDR RSS 訂閱源載入停班停課資料
         async function loadSuspensionData() {
             try {
+                // 注意：corsproxy.io 的使用方式是將目標 URL 放在代理 URL 後面
                 const response = await fetch(`${proxyURL}${encodeURIComponent(rssFeedURL)}`);
                 if (!response.ok) throw new Error(`RSS Feed fetch failed: ${response.status}`);
                 
@@ -397,6 +399,7 @@
         // 新增載入天氣快報資料的函式
         async function loadWeatherBulletins() {
             try {
+                // 注意：corsproxy.io 的使用方式是將目標 URL 放在代理 URL 後面
                 const response = await fetch(`${proxyURL}${encodeURIComponent(cwaWarningRSSURL)}`);
                 if (!response.ok) throw new Error(`CWA Warning RSS fetch failed: ${response.status}`);
                 
