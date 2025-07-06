@@ -1,6 +1,18 @@
 // script.js
 // 整合所有地圖應用程式的 JavaScript 邏輯
 
+// --- 0. 全域常數定義 (移至最頂端) ---
+// CORS 代理服務
+const proxyURL = 'https://corsproxy.io/?'; 
+// 縣市層級 GeoJSON
+const countyGeojsonURL = 'https://github.com/RBeeChen/taiwan-typhoon-map/raw/refs/heads/main/twmap.json'; 
+// 鄉鎮層級 GeoJSON
+const townGeojsonURL = 'https://github.com/RBeeChen/taiwan-typhoon-map/releases/download/NEW_JSON/TW_town.json'; 
+// 停班課 JSON Feed URL
+const jsonFeedURL = 'https://alerts.ncdr.nat.gov.tw/JSONAtomFeed.ashx?AlertType=33';
+// 中央氣象局天氣快報 RSS URL
+const cwaWarningRSSURL = 'https://www.cwa.gov.tw/rss/Data/cwa_warning.xml'; 
+
 // --- 1. 初始化地圖 ---
 const map = L.map('map', {
     zoomControl: true 
@@ -767,7 +779,7 @@ function updateInfoPanel(countyName, displayName, displayDate) { // 接收 displ
             );
         });
 
-        if (affectedTownipsInCounty.length > 0) {
+        if (affectedTownshipsInCounty.length > 0) {
             panelContent += `<h4 class="font-bold text-gray-700 mt-4">受影響鄉鎮資訊:</h4>`;
             affectedTownshipsInCounty.forEach(townKey => { 
                 const info = suspensionData[townKey];
