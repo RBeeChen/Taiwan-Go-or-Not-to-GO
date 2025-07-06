@@ -676,7 +676,7 @@ async function renderMap() { // 這是地圖渲染的主要入口點
                     }).addTo(affectedTownshipLayers);
                 }
             }
-            affectedTownshipLayers.addTo(map); // 將鄉鎮圖層群組添加到地圖
+            affectedTownshipLayers.addTo(map); // 將鄉鎮圖層群組添加到地圖，確保它在縣市圖層之上
 
             mapLoader.style.display = 'none'; // 隱藏載入中旋轉圖示
 
@@ -911,6 +911,12 @@ function updateInfoPanel(countyName, displayName, displayDate) {
                 townshipDetails += `</div>`;
             });
             panelContent += townshipDetails;
+        } else {
+            // 如果縣市是部分停班課，但沒有明確列出鄉鎮（例如籠統的公告）
+            if (countyInfo.dates[displayDateStr].status === 'partial') {
+                panelContent += `<h4 class="font-bold text-gray-700 mt-4">受影響鄉鎮資訊:</h4>`;
+                panelContent += `<p class="text-sm text-gray-600 mt-2">此縣市有部分區域停班課，但無更詳細的鄉鎮資訊已公布。</p>`;
+            }
         }
     }
     infoPanel.innerHTML = panelContent;
