@@ -180,42 +180,6 @@
                 display: none; /* 桌面版隱藏 */
             }
         }
-
-        /* 新增的資訊提示彈出視窗樣式 */
-        #info-modal {
-            display: none; /* 預設隱藏 */
-            position: fixed;
-            inset: 0; /* 覆蓋整個視窗 */
-            background-color: rgba(0, 0, 0, 0.5);
-            backdrop-filter: blur(3px);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 1001; /* 確保在最上層 */
-        }
-        #info-modal-content {
-            background-color: #ffffff;
-            padding: 24px;
-            border-radius: 12px;
-            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
-            max-width: 400px;
-            width: 90%;
-            text-align: center;
-            position: relative;
-        }
-        #info-modal-close-btn {
-            margin-top: 20px;
-            padding: 10px 24px;
-            background-color: #3b82f6;
-            color: white;
-            border-radius: 8px;
-            font-weight: 600;
-            transition: background-color 0.2s;
-            cursor: pointer;
-        }
-        #info-modal-close-btn:hover {
-            background-color: #2563eb;
-        }
     </style>
     <!-- Google Site Verification Tag -->
     <meta name="google-site-verification" content="SQVt1xwQIRKBvxI4TZFM-TW0bYbHJlSCztdlfJ9ckgs" />
@@ -322,17 +286,6 @@
         </div>
     </div>
 
-    <!-- 新增的資訊提示彈出視窗 -->
-    <div id="info-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[1001] hidden">
-        <div id="info-modal-content" class="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full text-center">
-            <h3 class="text-xl font-bold text-gray-800 mb-4">重要資訊</h3>
-            <p class="text-gray-700 mb-6">資訊正在更新，請以各縣市政府資料為主。</p>
-            <button id="info-modal-close-btn" class="px-6 py-2 bg-blue-500 text-white rounded-md shadow hover:bg-blue-600 transition-colors duration-200">
-                了解
-            </button>
-        </div>
-    </div>
-
     <!-- Leaflet.js 腳本 -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
@@ -370,9 +323,7 @@
         const sidebarOverlay = document.getElementById('sidebar-overlay');
         let zoomControlEl; // 宣告 Leaflet 縮放控制按鈕的變數
 
-        // 新增資訊提示彈出視窗相關 DOM 元素
-        const infoModal = document.getElementById('info-modal');
-        const infoModalCloseBtn = document.getElementById('info-modal-close-btn');
+        // 移除了資訊提示彈出視窗相關 DOM 元素
 
         const suspensionData = {}; // 儲存停班停課資訊，鍵可以是縣市名或縣市鄉鎮名
         // 定義需要特別顯示的離島名稱，用於從 RSS 資料中篩選 (這些通常是鄉鎮層級)
@@ -662,8 +613,9 @@
 
                 // 載入鄉鎮層級 GeoJSON 資料 (不立即添加到地圖)
                 const townResponse = await fetch(`${proxyURL}${encodeURIComponent(townGeojsonURL)}`);
-                if (!townResponse.ok) throw new Error(`Town GeoJSON fetch failed: ${townResponse.status} - ${townResponse.statusText}`);
-                townGeojson = await townResponse.json(); // 儲存到全域變數
+                if (!townResponse.ok) throw new Error(`Town GeoJSON fetch failed: ${response.status} - ${response.statusText}`);
+                const townData = await townResponse.json(); // 暫時用 townData 變數接收
+                townGeojson = townData; // 儲存到全域變數
 
                 // 確保地圖已準備就緒，然後再添加圖層和設定視圖
                 map.whenReady(function() {
@@ -689,14 +641,25 @@
                                     countyGeojsonLayer.resetStyle(e.target); // 滑鼠移開時重置縣市樣式
                                 },
                                 click: e => {
-                                    map.fitBounds(e.target.getBounds()); // 縮放至點擊的縣市
+                                    // 修正：在 fitBounds 前檢查邊界有效性
+                                    const clickedBounds = e.target.getBounds();
+                                    const isClickedBoundsValid = clickedBounds.isValid() && 
+                                                                 !isNaN(clickedBounds.getNorth()) && !isNaN(clickedBounds.getEast()) &&
+                                                                 !isNaN(clickedBounds.getSouth()) && !isNaN(clickedBounds.getWest());
+                                    if (isClickedBoundsValid) {
+                                        map.fitBounds(clickedBounds, { padding: [20, 20] }); // 縮放至點擊的縣市
+                                    } else {
+                                        console.warn("點擊的縣市 GeoJSON 邊界無效，無法縮放。");
+                                    }
+
                                     updateInfoPanel(countyName, displayName); // 點擊時更新資訊面板
 
                                     const countyInfo = suspensionData[countyName];
                                     let popupContent = `<strong class="text-base">${displayName}</strong><br>`;
                                     if (countyInfo) {
                                         popupContent += `<span style="color:${getStyle(countyInfo.today.status).fillColor};">${countyInfo.today.text}</span><br>`;
-                                        if (countyInfo.hasSpecificTomorrow || countyInfo.tomorrow.status !== 'normal') {
+                                        // 修正：只有當有明確的明天資訊且狀態非正常時才顯示明天的詳細資訊
+                                        if (countyInfo.hasSpecificTomorrow && countyInfo.tomorrow.status !== 'normal') {
                                             popupContent += `<span style="color:${getStyle(countyInfo.tomorrow.status).fillColor};">${countyInfo.tomorrow.text}</span>`;
                                         } else {
                                             popupContent += `<span class="text-gray-500">明天尚未發布資訊</span>`;
@@ -721,7 +684,7 @@
                                                     // 修正：確保顯示鄉鎮名稱，如果沒有則顯示「未知鄉鎮」
                                                     popupContent += `<br><span class="ml-2 font-semibold">${townFeature.properties.town || '未知鄉鎮'}:</span>`; 
                                                     popupContent += `<br><span class="ml-4 text-sm" style="color:${townTodayStatusColor};">${info.today.text}</span>`;
-                                                    if (info.hasSpecificTomorrow || info.tomorrow.status !== 'normal') {
+                                                    if (info.hasSpecificTomorrow && info.tomorrow.status !== 'normal') {
                                                         popupContent += `<br><span class="ml-4 text-sm" style="color:${townTomorrowStatusColor};">${info.tomorrow.text}</span>`;
                                                     } else {
                                                         popupContent += `<br><span class="ml-4 text-sm text-gray-500">明天尚未發布資訊</span>`;
@@ -740,8 +703,18 @@
                     }).addTo(map); // 先將縣市圖層添加到地圖
 
                     // 將地圖視野調整到縣市 GeoJSON 圖層的邊界
-                    if (countyGeojsonLayer.getBounds().isValid()) {
-                        map.fitBounds(countyGeojsonLayer.getBounds(), { padding: [20, 20] });
+                    // 修正：確保 countyGeojsonLayer 存在且包含有效的圖層，其邊界才有效
+                    const bounds = countyGeojsonLayer.getBounds();
+                    const isValidBounds = bounds.isValid() && 
+                                          !isNaN(bounds.getNorth()) && !isNaN(bounds.getEast()) &&
+                                          !isNaN(bounds.getSouth()) && !isNaN(bounds.getWest());
+
+                    if (countyGeojsonLayer && countyGeojsonLayer.getLayers().length > 0 && isValidBounds) {
+                        map.fitBounds(bounds, { padding: [20, 20] });
+                    } else {
+                        // 如果沒有有效的 GeoJSON 資料或邊界無效，則設置一個預設視圖
+                        map.setView([23.9, 121], 7); // 台灣中心點
+                        console.warn("未載入有效的縣市 GeoJSON 資料或地圖邊界無效，地圖將顯示預設視圖。");
                     }
 
                     // 清空舊的鄉鎮圖層
@@ -770,7 +743,8 @@
                                     let popupContent = `<strong class="text-base">${townDisplayName}</strong><br>`;
                                     if (info) {
                                         popupContent += `<span style="color:${getStyle(info.today.status).fillColor};">${info.today.text}</span><br>`;
-                                        if (info.hasSpecificTomorrow || info.tomorrow.status !== 'normal') {
+                                        // 修正：只有當有明確的明天資訊且狀態非正常時才顯示明天的詳細資訊
+                                        if (info.hasSpecificTomorrow && info.tomorrow.status !== 'normal') {
                                             popupContent += `<span style="color:${getStyle(info.tomorrow.status).fillColor};">${info.tomorrow.text}</span>`;
                                         } else {
                                             popupContent += `<span class="text-gray-500">明天尚未發布資訊</span>`;
@@ -798,18 +772,7 @@
                     // 載入並渲染天氣快報
                     loadWeatherBulletins(); // 不需要 await，因為不阻擋地圖渲染
 
-                    // --- 檢查是否有縣市更新隔天資訊，才顯示提示彈出視窗 ---
-                    let shouldShowInfoModal = false;
-                    for (const key in suspensionData) {
-                        if (suspensionData[key].hasSpecificTomorrow) {
-                            shouldShowInfoModal = true;
-                            break; // 找到一個有隔天資訊的，就設定為 true 並跳出迴圈
-                        }
-                    }
-
-                    if (shouldShowInfoModal) {
-                        infoModal.style.display = 'flex'; // 顯示資訊提示彈出視窗
-                    }
+                    // 移除了資訊提示彈出視窗的顯示邏輯
                 }); // 關閉 map.whenReady()
             } catch (error) {
                 console.error("無法渲染地圖或載入資料:", error);
@@ -843,9 +806,9 @@
                             <p class="text-sm" style="color:${todayStatusColor};">${islandInfo.today.text}</p>
                     `;
                     // 顯示明天的狀態，如果明確提到或與今天狀態不同
-                    if (islandInfo.hasSpecificTomorrow || islandInfo.tomorrow.status !== 'normal') {
+                    if (islandInfo.hasSpecificTomorrow && islandInfo.tomorrow.status !== 'normal') {
                         content += `<p class="text-sm" style="color:${tomorrowStatusColor};">${islandInfo.tomorrow.text}</p>`;
-                    } else { // 如果沒有明確的明天資訊且明天狀態為正常 (預設值)
+                    } else { // 如果沒有明確的明天資訊或明天狀態為正常
                          content += `<p class="text-sm text-gray-500">明天尚未發布資訊</p>`;
                     }
                     content += `</div>`;
@@ -935,10 +898,7 @@
             }
         });
 
-        // 「了解」按鈕的事件監聽器 (資訊提示彈出視窗)
-        infoModalCloseBtn.addEventListener('click', () => {
-            infoModal.style.display = 'none';
-        });
+        // 移除了「了解」按鈕的事件監聽器 (資訊提示彈出視窗)
 
         // --- 側邊欄開關邏輯 ---
         function toggleSidebar() {
