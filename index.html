@@ -203,6 +203,15 @@
                     <a href="https://www.cwa.gov.tw/V8/C/" target="_blank" class="text-blue-500 hover:underline">中央氣象局</a>
                 </p>
                 <p id="update-time" class="text-xs text-gray-600 font-semibold mt-1">資料更新時間：載入中...</p>
+                <!-- 日期切換按鈕 -->
+                <div class="flex space-x-2 mt-2">
+                    <button id="view-today-btn" class="px-3 py-1 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors duration-200 text-sm">
+                        查看今天
+                    </button>
+                    <button id="view-tomorrow-btn" class="px-3 py-1 bg-indigo-500 text-white rounded-md hover:bg-indigo-600 transition-colors duration-200 text-sm">
+                        查看明天
+                    </button>
+                </div>
             </div>
             <!-- 漢堡選單按鈕 (手機版顯示) -->
             <button id="sidebar-toggle-btn" class="hamburger-menu md:hidden">
@@ -238,6 +247,10 @@
                      <div class="flex items-center">
                         <div class="w-5 h-5 rounded-md mr-2" style="background-color: #f97316;"></div>
                         <span class="text-sm text-gray-700">部分區域或特定人員</span>
+                    </div>
+                    <div class="flex items-center">
+                        <div class="w-5 h-5 rounded-md mr-2" style="background-color: #cccccc;"></div> <!-- 灰色 -->
+                        <span class="text-sm text-gray-700">沒有公布資訊</span>
                     </div>
                 </div>
             </div>
@@ -328,6 +341,13 @@
         // 定義需要特別顯示的離島名稱，用於從 RSS 資料中篩選 (這些通常是鄉鎮層級)
         const outlyingIslands = ['澎湖縣', '金門縣', '連江縣', '臺東縣蘭嶼鄉', '臺東縣綠島鄉'];
 
+        // 日期切換按鈕相關 DOM 元素
+        const viewTodayBtn = document.getElementById('view-today-btn');
+        const viewTomorrowBtn = document.getElementById('view-tomorrow-btn');
+        // 全域變數，表示目前地圖顯示的是哪一天的資料
+        let currentDisplayDate = new Date(); 
+        currentDisplayDate.setHours(0,0,0,0); // Normalize to start of day
+
         // --- URL 定義 ---
         // 更新 GeoJSON URL 以反映新的 Repository 名稱
         const countyGeojsonURL = 'https://github.com/RBeeChen/taiwan-typhoon-map/raw/refs/heads/main/twmap.json'; // 縣市層級 GeoJSON
@@ -345,10 +365,55 @@
                 case 'suspended': return { ...baseStyle, fillColor: '#ef4444' }; // 紅色：全天停止上班上課
                 case 'partial_time': return { ...baseStyle, fillColor: '#facc15' }; // 黃色：非全天停止上班或上課 (例如上午、中午、下午、晚上停課)
                 case 'partial': return { ...baseStyle, fillColor: '#f97316' };   // 橘色：部分區域或特定人員
-                case 'normal': default: return { ...baseStyle, fillColor: '#3b82f6' }; // 藍色：正常上班上課
+                case 'normal': return { ...baseStyle, fillColor: '#3b82f6' }; // 藍色：正常上班上課
+                case 'no_info': default: return { ...baseStyle, fillColor: '#cccccc' }; // 灰色：沒有公布資訊
             }
         }
         const highlightStyle = { weight: 4, color: '#333', fillOpacity: 0.95 }; // 滑鼠懸停時的邊框樣式
+
+        // Helper to format date toYYYY-MM-DD
+        function formatDateToYYYYMMDD(date) {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        // Helper to format date for display (e.g., "7月6日")
+        function formatDisplayDate(date) {
+            const month = date.getMonth() + 1;
+            const day = date.getDate();
+            return `${month}月${day}日`;
+        }
+
+        // Helper to parse date from text like "7/7" or "7月7日"
+        function parseDateFromText(text, referenceDate) {
+            const year = referenceDate.getFullYear();
+            // Look for MM/DD pattern
+            const mdMatch = text.match(/(\d{1,2})\/(\d{1,2})/);
+            if (mdMatch) {
+                const month = parseInt(mdMatch[1], 10);
+                const day = parseInt(mdMatch[2], 10);
+                const parsedDate = new Date(year, month - 1, day);
+                parsedDate.setHours(0, 0, 0, 0);
+                // Basic validation: ensure it's a valid date and not too far in the past/future
+                if (parsedDate.getMonth() === month - 1 && parsedDate.getDate() === day) {
+                    return parsedDate;
+                }
+            }
+            // Look for MM月DD日 pattern
+            const chineseDateMatch = text.match(/(\d{1,2})月(\d{1,2})日/);
+            if (chineseDateMatch) {
+                const month = parseInt(chineseDateMatch[1], 10);
+                const day = parseInt(chineseDateMatch[2], 10);
+                const parsedDate = new Date(year, month - 1, day);
+                parsedDate.setHours(0, 0, 0, 0);
+                if (parsedDate.getMonth() === month - 1 && parsedDate.getDate() === day) {
+                    return parsedDate;
+                }
+            }
+            return null; // No date found
+        }
 
         // 標準化縣市/鄉鎮名稱，處理「臺」與「台」的差異，並移除括號內容
         function normalizeName(name) { 
@@ -402,7 +467,8 @@
                 }
 
                 // Temporary storage to hold all entries for each location, keyed by normalized name
-                const rawSuspensionData = {}; // { 'NormalizedName': [{entry1}, {entry2}, ...] }
+                // rawSuspensionData = { 'NormalizedName': { isTownship: bool, parentCounty: string, dates: { 'YYYY-MM-DD': [{entry1}, {entry2}], ... } }, ... }
+                const rawSuspensionData = {}; 
 
                 entries.forEach(entry => {
                     const summaryText = entry.summary?.['#text'] || '';
@@ -447,92 +513,115 @@
                     }
                     parentCountyName = normalizeName(parentCountyName);
 
-                    // Store the raw entry with parsed details
+                    // Initialize rawSuspensionData[targetKey] if it doesn't exist
                     if (!rawSuspensionData[targetKey]) {
-                        rawSuspensionData[targetKey] = [];
+                        rawSuspensionData[targetKey] = {
+                            dates: {},
+                            isTownship: isTownshipSpecific, // Set location's isTownship here
+                            parentCounty: parentCountyName 
+                        };
                     }
-                    rawSuspensionData[targetKey].push({
-                        updated: new Date(entry.updated),
+
+                    const entryUpdatedDate = new Date(entry.updated);
+                    entryUpdatedDate.setHours(0,0,0,0); // Normalize update date to start of day
+
+                    let targetAnnouncementDate = null; // The actual calendar date this announcement applies to
+
+                    // 1. Check for explicit "今天"
+                    if (statusText.includes('今天')) {
+                        targetAnnouncementDate = entryUpdatedDate;
+                    } 
+                    // 2. Check for explicit "明天"
+                    else if (statusText.includes('明天')) {
+                        targetAnnouncementDate = new Date(entryUpdatedDate);
+                        targetAnnouncementDate.setDate(targetAnnouncementDate.getDate() + 1);
+                        targetAnnouncementDate.setHours(0,0,0,0);
+                    } 
+                    // 3. Try to parse date from text (e.g., "7/7停止上班" or "7月7日停止上班")
+                    else {
+                        const parsedDate = parseDateFromText(statusText, entryUpdatedDate);
+                        if (parsedDate) {
+                            targetAnnouncementDate = parsedDate;
+                        }
+                    }
+
+                    // 4. If no specific date found, assume it applies to the announcement's update date ("今天")
+                    if (!targetAnnouncementDate) {
+                        targetAnnouncementDate = entryUpdatedDate;
+                    }
+
+                    const targetAnnouncementDateStr = formatDateToYYYYMMDD(targetAnnouncementDate);
+
+                    // Ensure date array exists for this target date
+                    if (!rawSuspensionData[targetKey].dates[targetAnnouncementDateStr]) {
+                        rawSuspensionData[targetKey].dates[targetAnnouncementDateStr] = [];
+                    }
+
+                    // Store entry data with the determined target date
+                    rawSuspensionData[targetKey].dates[targetAnnouncementDateStr].push({
+                        updated: new Date(entry.updated), // Keep original updated timestamp for recency
                         statusText: statusText,
                         isTownship: isTownshipSpecific,
                         parentCounty: parentCountyName
                     });
                 });
 
-                // Now process rawSuspensionData to determine final statuses for each location
-                for (const key in rawSuspensionData) {
-                    const entriesForLocation = rawSuspensionData[key];
-                    // Sort entries by updated time, newest first
-                    entriesForLocation.sort((a, b) => b.updated.getTime() - a.updated.getTime());
-
-                    let finalTodayStatus = { status: 'normal', text: '今天照常上班、照常上課' };
-                    let finalTomorrowStatus = { status: 'normal', text: '明天尚未發布資訊' };
-                    let finalHasSpecificTomorrow = false;
-
-                    // Iterate through entries to find the most definitive status for today and tomorrow
-                    for (const entry of entriesForLocation) {
-                        const statusText = entry.statusText;
-                        const todayMatch = statusText.match(/(今天[^。；]*?(停止上班|照常上班|已達停止上班及上課標準)[^。；]*?)/);
-                        const tomorrowMatch = statusText.match(/(明天[^。；]*?(停止上班|照常上班|已達停止上班及上課標準)[^。；]*?)/);
-
-                        // Determine status for 'today'
-                        let currentTodayStmt = todayMatch && todayMatch[0] ? todayMatch[0].trim() : '';
-                        if (!currentTodayStmt && !statusText.includes('今天') && !statusText.includes('明天')) {
-                            // If no explicit "今天" or "明天", assume it's for today
-                            currentTodayStmt = `今天${statusText.trim()}`;
-                        }
-                        const currentTodayStatus = currentTodayStmt ? determineStatus(currentTodayStmt) : 'normal';
-
-                        // Apply today's status if it's stronger or the first one
-                        if (statusPriority.indexOf(currentTodayStatus) > statusPriority.indexOf(finalTodayStatus.status)) {
-                            finalTodayStatus = { status: currentTodayStatus, text: currentTodayStmt || `今天照常上班、照常上課` };
-                        } else if (statusPriority.indexOf(currentTodayStatus) === statusPriority.indexOf(finalTodayStatus.status) && currentTodayStmt) {
-                            // If same priority, take the most recent text (due to sorting)
-                            finalTodayStatus = { status: currentTodayStatus, text: currentTodayStmt };
-                        }
-
-
-                        // Determine status for 'tomorrow'
-                        let currentTomorrowStmt = tomorrowMatch && tomorrowMatch[0] ? tomorrowMatch[0].trim() : '';
-                        const currentTomorrowStatus = currentTomorrowStmt ? determineStatus(currentTomorrowStmt) : 'normal';
-
-                        // Apply tomorrow's status if it's stronger or the first explicit tomorrow announcement
-                        if (tomorrowMatch) { // Only consider entries that explicitly mention "明天"
-                            if (statusPriority.indexOf(currentTomorrowStatus) > statusPriority.indexOf(finalTomorrowStatus.status)) {
-                                finalTomorrowStatus = { status: currentTomorrowStatus, text: currentTomorrowStmt };
-                                finalHasSpecificTomorrow = true;
-                            } else if (statusPriority.indexOf(currentTomorrowStatus) === statusPriority.indexOf(finalTomorrowStatus.status) && currentTomorrowStmt) {
-                                // If same priority, take the most recent text (due to sorting)
-                                finalTomorrowStatus = { status: currentTomorrowStatus, text: currentTomorrowStmt };
-                                finalHasSpecificTomorrow = true;
-                            }
-                        }
-                    }
-
-                    // Set final status for the location
-                    suspensionData[key] = {
-                        today: finalTodayStatus,
-                        tomorrow: finalTomorrowStatus,
-                        hasSpecificTomorrow: finalHasSpecificTomorrow,
-                        isTownship: entriesForLocation[0].isTownship, // Take from the first entry (should be consistent)
-                        parentCounty: entriesForLocation[0].parentCounty, // Take from the first entry
+                // Now process rawSuspensionData to determine final statuses for each location and date
+                for (const locationKey in rawSuspensionData) {
+                    // Initialize suspensionData[locationKey] using the stored properties from rawSuspensionData
+                    suspensionData[locationKey] = {
+                        dates: {}, // Stores status for specific dates
+                        isTownship: rawSuspensionData[locationKey].isTownship, // Get from rawSuspensionData
+                        parentCounty: rawSuspensionData[locationKey].parentCounty, // Get from rawSuspensionData
                         hasTownshipSpecificData: false // Will be updated later for parent counties
                     };
+
+                    for (const dateStr in rawSuspensionData[locationKey].dates) {
+                        const entriesForDate = rawSuspensionData[locationKey].dates[dateStr];
+                        entriesForDate.sort((a, b) => b.updated.getTime() - a.updated.getTime()); // Newest first
+
+                        let finalStatusForDate = { status: 'normal', text: `照常上班、照常上課`, updated: new Date(0) }; // Default text, will be prefixed later
+                        let foundRelevantAnnouncement = false;
+
+                        for (const entry of entriesForDate) {
+                            const statusText = entry.statusText;
+                            let stmt = statusText; // Use full statusText for now, determineStatus will parse it
+
+                            if (stmt) { // Ensure statement is not empty
+                                const currentStatus = determineStatus(stmt);
+                                // If the current status is stronger, or if it's the same priority but newer
+                                if (statusPriority.indexOf(currentStatus) > statusPriority.indexOf(finalStatusForDate.status)) {
+                                    finalStatusForDate = { status: currentStatus, text: stmt, updated: entry.updated };
+                                    foundRelevantAnnouncement = true;
+                                } else if (statusPriority.indexOf(currentStatus) === statusPriority.indexOf(finalStatusForDate.status) && entry.updated > (finalStatusForDate.updated || 0)) {
+                                    // If same priority, take the most recent
+                                    finalStatusForDate = { status: currentStatus, text: stmt, updated: entry.updated };
+                                    foundRelevantAnnouncement = true;
+                                }
+                            }
+                        }
+                        
+                        // If no specific announcement was found for this date, default to normal
+                        if (!foundRelevantAnnouncement) {
+                            finalStatusForDate = { status: 'normal', text: `照常上班、照常上課` };
+                        }
+
+                        suspensionData[locationKey].dates[dateStr] = finalStatusForDate;
+                    }
                 }
 
-                // Special handling for parent counties: set hasTownshipSpecificData if any of its townships are affected
+                // Special handling for parent counties: set hasTownshipSpecificData if any of its townships are affected for the *current day*
+                const currentDayStr = formatDateToYYYYMMDD(new Date());
                 for (const key in suspensionData) {
                     const item = suspensionData[key];
-                    if (item.isTownship && item.today.status !== 'normal') { // If a township is affected today
+                    // Only check for townships that are affected today
+                    if (item.isTownship && item.dates[currentDayStr] && item.dates[currentDayStr].status !== 'normal') {
                         const parentCountyKey = item.parentCounty;
                         if (suspensionData[parentCountyKey]) {
-                            // Only set this flag; DO NOT change the parent county's 'today.status' based on township.
                             suspensionData[parentCountyKey].hasTownshipSpecificData = true;
                         }
                     }
                 }
-
-
             } catch (error) {
                 console.error("無法載入停班停課資料:", error);
                 updateTimeEl.textContent = '停班課資料載入失敗，將顯示預設地圖狀態。';
@@ -541,22 +630,154 @@
             }
         }
 
+        // 函式：根據 currentDisplayDate 重新整理地圖顏色和資訊面板
+        function refreshMapDisplay() {
+            const displayDateStr = formatDateToYYYYMMDD(currentDisplayDate);
+            const todayActualDateStr = formatDateToYYYYMMDD(new Date()); // 實際的今天日期字串
+
+            // 更新縣市圖層的樣式
+            if (countyGeojsonLayer) {
+                countyGeojsonLayer.eachLayer(layer => {
+                    const countyName = normalizeName(layer.feature.properties.COUNTYNAME);
+                    const info = suspensionData[countyName];
+                    let statusToDisplay = 'no_info'; // 預設為灰色 (針對非今天)
+
+                    if (info && info.dates[displayDateStr]) {
+                        statusToDisplay = info.dates[displayDateStr].status;
+                    } else if (displayDateStr === todayActualDateStr) {
+                        // 如果是今天的日期，且沒有明確資訊，則預設為正常
+                        statusToDisplay = 'normal';
+                    }
+                    layer.setStyle(getStyle(statusToDisplay));
+                });
+            }
+
+            // 清空舊的鄉鎮圖層並重新繪製
+            affectedTownshipLayers.clearLayers(); 
+            if (townGeojson) {
+                const nextDayRelativeToDisplay = new Date(currentDisplayDate);
+                nextDayRelativeToDisplay.setDate(nextDayRelativeToDisplay.getDate() + 1);
+                const nextDayRelativeToDisplayStr = formatDateToYYYYMMDD(nextDayRelativeToDisplay);
+
+                const affectedTownships = townGeojson.features.filter(f => {
+                    const townKey = normalizeName(f.properties.county + f.properties.town);
+                    const info = suspensionData[townKey];
+                    // 只有當鄉鎮在顯示日期或其隔天有明確的非正常停班課資訊時才繪製
+                    return info && (
+                        (info.dates[displayDateStr] && info.dates[displayDateStr].status !== 'normal') ||
+                        (info.dates[nextDayRelativeToDisplayStr] && info.dates[nextDayRelativeToDisplayStr].status !== 'normal')
+                    );
+                });
+
+                if (affectedTownships.length > 0) {
+                    L.geoJSON(affectedTownships, {
+                        style: feature => {
+                            const townKey = normalizeName(feature.properties.county + feature.properties.town);
+                            const info = suspensionData[townKey];
+                            let statusToDisplay = 'no_info'; // 預設為灰色 (針對非今天)
+                            if (info && info.dates[displayDateStr]) {
+                                statusToDisplay = info.dates[displayDateStr].status;
+                            } else if (displayDateStr === todayActualDateStr) {
+                                // 如果是今天的日期，且沒有明確資訊，則預設為正常
+                                statusToDisplay = 'normal';
+                            }
+                            return getStyle(statusToDisplay);
+                        },
+                        onEachFeature: (feature, layer) => {
+                            const townKey = normalizeName(feature.properties.county + feature.properties.town);
+                            const townDisplayName = feature.properties.county + feature.properties.town;
+                            const info = suspensionData[townKey];
+
+                            let townDisplayDateStatus = info && info.dates[displayDateStr] ? info.dates[displayDateStr] : null;
+                            if (!townDisplayDateStatus && displayDateStr === todayActualDateStr) {
+                                townDisplayDateStatus = { status: 'normal', text: `照常上班、照常上課` };
+                            } else if (!townDisplayDateStatus) {
+                                townDisplayDateStatus = { status: 'no_info', text: `尚未發布資訊` };
+                            }
+
+                            let townNextDayStatus = info && info.dates[nextDayRelativeToDisplayStr] ? info.dates[nextDayRelativeToDisplayStr] : null;
+                            if (!townNextDayStatus) {
+                                townNextDayStatus = { status: 'no_info', text: `尚未發布資訊` };
+                            }
+
+                            let popupContent = `<strong class="text-base">${townDisplayName}</strong><br>`;
+                            
+                            // Display for currentDisplayDate
+                            popupContent += `<span style="color:${getStyle(townDisplayDateStatus.status).fillColor};">
+                                ${formatDisplayDate(currentDisplayDate)}：${townDisplayDateStatus.text}
+                            </span><br>`;
+                            
+                            // Display for next day relative to currentDisplayDate
+                            popupContent += `<span style="color:${getStyle(townNextDayStatus.status).fillColor};">
+                                ${formatDisplayDate(nextDayRelativeToDisplay)}：${townNextDayStatus.text}
+                            </span>`;
+                            layer.bindPopup(popupContent);
+                            layer.bindTooltip(townDisplayName, { permanent: false, direction: 'center' });
+                        }
+                    }).addTo(affectedTownshipLayers);
+                }
+            }
+            affectedTownshipLayers.addTo(map); // 將更新後的鄉鎮圖層群組添加到地圖
+
+            // 更新資訊面板 (如果之前有選取縣市，則更新該縣市資訊)
+            const currentCountyNameInPanel = infoPanel.dataset.countyName;
+            const currentDisplayNameInPanel = infoPanel.dataset.displayName;
+            if (currentCountyNameInPanel && currentDisplayNameInPanel) {
+                updateInfoPanel(currentCountyNameInPanel, currentDisplayNameInPanel, currentDisplayDate);
+            } else {
+                infoPanel.innerHTML = `<p class="text-gray-600">請將滑鼠移至或點擊地圖上的縣市以查看資訊。</p>`;
+            }
+
+            // 更新離島資訊
+            renderOutlyingIslandsInfo(currentDisplayDate);
+
+            // 強制 Leaflet 地圖重新計算尺寸，確保版面正確
+            if (map._container && map._container.offsetWidth > 0 && map._container.offsetHeight > 0) {
+                map.invalidateSize(true);
+            } else {
+                console.warn("地圖容器尺寸無效，無法重新計算地圖尺寸。");
+            }
+        }
+
+
         // 函式：更新資訊面板內容
-        function updateInfoPanel(countyName, displayName) {
+        function updateInfoPanel(countyName, displayName, displayDate) {
             const countyInfo = suspensionData[countyName];
             let panelContent = `<h3 class="font-bold text-lg text-gray-900">${displayName}</h3>`;
-            
-            // 顯示縣市今天的狀態
-            const todayStatusColor = getStyle(countyInfo && countyInfo.today ? countyInfo.today.status : 'normal').fillColor;
-            panelContent += `<p class="mt-1 font-semibold" style="color:${todayStatusColor};">${countyInfo && countyInfo.today ? countyInfo.today.text : '今天照常上班、照常上課'}</p>`;
 
-            // 顯示縣市明天的狀態
-            const tomorrowStatusColor = getStyle(countyInfo && countyInfo.tomorrow ? countyInfo.tomorrow.status : 'normal').fillColor;
-            if (countyInfo && (countyInfo.hasSpecificTomorrow || countyInfo.tomorrow.status !== 'normal')) {
-                panelContent += `<p class="mt-1 font-semibold" style="color:${tomorrowStatusColor};">${countyInfo.tomorrow.text}</p>`;
-            } else {
-                panelContent += `<p class="mt-1 font-semibold text-gray-500">明天尚未發布資訊</p>`;
+            const displayDateStr = formatDateToYYYYMMDD(displayDate);
+            const nextDay = new Date(displayDate);
+            nextDay.setDate(nextDay.getDate() + 1);
+            const nextDayStr = formatDateToYYYYMMDD(nextDay);
+            const todayActualDateStr = formatDateToYYYYMMDD(new Date()); // 實際的今天日期字串
+
+            // Store the currently displayed county name and display name for refreshMapDisplay
+            infoPanel.dataset.countyName = countyName;
+            infoPanel.dataset.displayName = displayName;
+
+            // Get status for the currentDisplayDate
+            let countyDisplayDateStatus = countyInfo && countyInfo.dates[displayDateStr] ? countyInfo.dates[displayDateStr] : null;
+            if (!countyDisplayDateStatus && displayDateStr === todayActualDateStr) {
+                countyDisplayDateStatus = { status: 'normal', text: '照常上班、照常上課' };
+            } else if (!countyDisplayDateStatus) {
+                countyDisplayDateStatus = { status: 'no_info', text: '尚未發布資訊' };
             }
+
+            const displayDateStatusColor = getStyle(countyDisplayDateStatus.status).fillColor;
+            panelContent += `<p class="mt-1 font-semibold" style="color:${displayDateStatusColor};">
+                ${formatDisplayDate(displayDate)}：${countyDisplayDateStatus.text}
+            </p>`;
+
+            // Get status for the next day relative to currentDisplayDate
+            let countyNextDayStatus = countyInfo && countyInfo.dates[nextDayStr] ? countyInfo.dates[nextDayStr] : null;
+            if (!countyNextDayStatus) {
+                countyNextDayStatus = { status: 'no_info', text: '尚未發布資訊' };
+            }
+            const nextDayStatusColor = getStyle(countyNextDayStatus.status).fillColor;
+            
+            panelContent += `<p class="mt-1 font-semibold" style="color:${nextDayStatusColor};">
+                ${formatDisplayDate(nextDay)}：${countyNextDayStatus.text}
+            </p>`;
 
             // 在面板中顯示鄉鎮受影響資訊
             if (countyInfo && countyInfo.hasTownshipSpecificData && townGeojson) {
@@ -565,7 +786,11 @@
                 const affectedTownshipsInCounty = filteredTownFeatures.filter(townFeature => {
                     const townKey = normalizeName(townFeature.properties.county + townFeature.properties.town);
                     const townInfo = suspensionData[townKey];
-                    return townInfo && (townInfo.today.status !== 'normal' || townInfo.tomorrow.status !== 'normal');
+                    // Check status for current day or next day
+                    return townInfo && (
+                        (townInfo.dates[displayDateStr] && townInfo.dates[displayDateStr].status !== 'normal') ||
+                        (townInfo.dates[nextDayStr] && townInfo.dates[nextDayStr].status !== 'normal')
+                    );
                 });
 
                 if (affectedTownshipsInCounty.length > 0) {
@@ -573,17 +798,31 @@
                     affectedTownshipsInCounty.forEach(townFeature => { 
                         const townKey = normalizeName(townFeature.properties.county + townFeature.properties.town);
                         const info = suspensionData[townKey];
-                        const townTodayStatusColor = getStyle(info.today.status).fillColor;
-                        const townTomorrowStatusColor = getStyle(info.tomorrow.status).fillColor;
-                        townshipDetails += `<div class="mt-2 pl-4 border-l-2 border-gray-200">`;
-                        // 修正：確保顯示鄉鎮名稱，如果沒有則顯示「未知鄉鎮」
-                        townshipDetails += `<h4 class="font-semibold text-gray-700">${townFeature.properties.town || '未知鄉鎮'}</h4>`; 
-                        townshipDetails += `<p class="text-sm" style="color:${townTodayStatusColor};">${info.today.text}</p>`;
-                        if (info.hasSpecificTomorrow || info.tomorrow.status !== 'normal') {
-                            townshipDetails += `<p class="text-sm" style="color:${townTomorrowStatusColor};">${info.tomorrow.text}</p>`;
-                        } else {
-                            townshipDetails += `<p class="text-sm text-gray-500">明天尚未發布資訊</p>`;
+                        
+                        let townDisplayDateStatus = info.dates[displayDateStr] || null;
+                        if (!townDisplayDateStatus && displayDateStr === todayActualDateStr) {
+                            townDisplayDateStatus = { status: 'normal', text: `照常上班、照常上課` };
+                        } else if (!townDisplayDateStatus) {
+                            townDisplayDateStatus = { status: 'no_info', text: `尚未發布資訊` };
                         }
+
+                        let townNextDayStatus = info.dates[nextDayStr] || null;
+                        if (!townNextDayStatus) {
+                            townNextDayStatus = { status: 'no_info', text: `尚未發布資訊` };
+                        }
+
+                        const townDisplayDateStatusColor = getStyle(townDisplayDateStatus.status).fillColor;
+                        const townNextDayStatusColor = getStyle(townNextDayStatus.status).fillColor;
+
+                        townshipDetails += `<div class="mt-2 pl-4 border-l-2 border-gray-200">`;
+                        townshipDetails += `<h4 class="font-semibold text-gray-700">${townFeature.properties.town || '未知鄉鎮'}</h4>`; 
+                        townshipDetails += `<p class="text-sm" style="color:${townDisplayDateStatusColor};">
+                            ${formatDisplayDate(displayDate)}：${townDisplayDateStatus.text}
+                        </p>`;
+                        
+                        townshipDetails += `<p class="text-sm" style="color:${townNextDayStatusColor};">
+                            ${formatDisplayDate(nextDay)}：${townNextDayStatus.text}
+                        </p>`;
                         townshipDetails += `</div>`;
                     });
                     panelContent += townshipDetails;
@@ -615,13 +854,23 @@
 
                 // 確保地圖已準備就緒，然後再添加圖層和設定視圖
                 map.whenReady(function() {
+                    console.log("Leaflet map is ready."); // Added console log
                     // 建立 Leaflet 縣市層 GeoJSON 圖層
                     countyGeojsonLayer = L.geoJSON(countyData, {
                         style: feature => {
                             const countyName = normalizeName(feature.properties.COUNTYNAME);
                             const info = suspensionData[countyName];
-                            // 地圖顏色主要反映今天的狀態，如果沒有今天資訊則預設正常
-                            return getStyle(info && info.today ? info.today.status : 'normal'); 
+                            const displayDateStr = formatDateToYYYYMMDD(currentDisplayDate);
+                            const todayActualDateStr = formatDateToYYYYMMDD(new Date()); // 實際的今天日期字串
+
+                            let statusToDisplay = 'no_info'; // 預設為灰色 (針對非今天)
+                            if (info && info.dates[displayDateStr]) {
+                                statusToDisplay = info.dates[displayDateStr].status;
+                            } else if (displayDateStr === todayActualDateStr) {
+                                // 如果是今天的日期，且沒有明確資訊，則預設為正常
+                                statusToDisplay = 'normal';
+                            }
+                            return getStyle(statusToDisplay);
                         },
                         onEachFeature: (feature, layer) => {
                             const countyName = normalizeName(feature.properties.COUNTYNAME); // 標準化縣市名稱
@@ -632,9 +881,18 @@
                                 mouseover: e => {
                                     const hoveredLayer = e.target;
                                     hoveredLayer.setStyle(highlightStyle); // 滑鼠懸停時高亮顯示
+                                    if (!L.Browser.ie) hoveredLayer.bringToFront(); // 移到最上層以獲得更好的可見性
+                                    
+                                    // Mouseover also updates the info panel based on currentDisplayDate
+                                    updateInfoPanel(countyName, displayName, currentDisplayDate);
                                 },
                                 mouseout: e => {
-                                    countyGeojsonLayer.resetStyle(e.target); // 滑鼠移開時重置縣市樣式
+                                    countyGeojsonLayer.resetStyle(e.target); // 滑鼠移開時重置樣式
+                                    // Reset info panel to default if no county is actively selected
+                                    const currentCountyNameInPanel = infoPanel.dataset.countyName;
+                                    if (!currentCountyNameInPanel || currentCountyNameInPanel !== countyName) {
+                                        infoPanel.innerHTML = `<p class="text-gray-600">請將滑鼠移至或點擊地圖上的縣市以查看資訊。</p>`;
+                                    }
                                 },
                                 click: e => {
                                     // 修正：在 fitBounds 前檢查邊界有效性
@@ -648,50 +906,84 @@
                                         console.warn("點擊的縣市 GeoJSON 邊界無效，無法縮放。");
                                     }
 
-                                    updateInfoPanel(countyName, displayName); // 點擊時更新資訊面板
+                                    updateInfoPanel(countyName, displayName, currentDisplayDate); // 點擊時更新資訊面板
 
                                     const countyInfo = suspensionData[countyName];
                                     let popupContent = `<strong class="text-base">${displayName}</strong><br>`;
-                                    if (countyInfo) {
-                                        popupContent += `<span style="color:${getStyle(countyInfo.today.status).fillColor};">${countyInfo.today.text}</span><br>`;
-                                        // 修正：只有當有明確的明天資訊且狀態非正常時才顯示明天的詳細資訊
-                                        if (countyInfo.hasSpecificTomorrow && countyInfo.tomorrow.status !== 'normal') {
-                                            popupContent += `<span style="color:${getStyle(countyInfo.tomorrow.status).fillColor};">${countyInfo.tomorrow.text}</span>`;
-                                        } else {
-                                            popupContent += `<span class="text-gray-500">明天尚未發布資訊</span>`;
-                                        }
 
-                                        // 在點擊彈出視窗中也顯示受影響鄉鎮資訊
-                                        if (countyInfo.hasTownshipSpecificData && townGeojson) {
-                                            const filteredTownFeatures = townGeojson.features.filter(f => normalizeName(f.properties.county) === countyName);
-                                            const affectedTownshipsInCounty = filteredTownFeatures.filter(townFeature => {
-                                                const townKey = normalizeName(townFeature.properties.county + townFeature.properties.town);
-                                                const townInfo = suspensionData[townKey];
-                                                return townInfo && (townInfo.today.status !== 'normal' || townInfo.tomorrow.status !== 'normal');
-                                            });
+                                    const displayDateStrForPopup = formatDateToYYYYMMDD(currentDisplayDate);
+                                    const nextDayForPopup = new Date(currentDisplayDate);
+                                    nextDayForPopup.setDate(nextDayForPopup.getDate() + 1);
+                                    const nextDayStrForPopup = formatDateToYYYYMMDD(nextDayForPopup);
 
-                                            if (affectedTownshipsInCounty.length > 0) {
-                                                popupContent += `<br><strong class="text-base">受影響鄉鎮:</strong>`;
-                                                affectedTownshipsInCounty.forEach(townFeature => { 
-                                                    const townKey = normalizeName(townFeature.properties.county + townFeature.properties.town);
-                                                    const info = suspensionData[townKey];
-                                                    const townTodayStatusColor = getStyle(info.today.status).fillColor;
-                                                    const townTomorrowStatusColor = getStyle(info.tomorrow.status).fillColor;
-                                                    // 修正：確保顯示鄉鎮名稱，如果沒有則顯示「未知鄉鎮」
-                                                    popupContent += `<br><span class="ml-2 font-semibold">${townFeature.properties.town || '未知鄉鎮'}:</span>`; 
-                                                    popupContent += `<br><span class="ml-4 text-sm" style="color:${townTodayStatusColor};">${info.today.text}</span>`;
-                                                    if (info.hasSpecificTomorrow && info.tomorrow.status !== 'normal') {
-                                                        popupContent += `<br><span class="ml-4 text-sm" style="color:${townTomorrowStatusColor};">${info.tomorrow.text}</span>`;
-                                                    } else {
-                                                        popupContent += `<br><span class="ml-4 text-sm text-gray-500">明天尚未發布資訊</span>`;
-                                                    }
-                                                });
-                                            }
-                                        }
-
-                                    } else {
-                                        popupContent += `<br>正常上班上課`;
+                                    let countyDisplayDateStatus = countyInfo && countyInfo.dates[displayDateStrForPopup] ? countyInfo.dates[displayDateStrForPopup] : null;
+                                    const todayActualDateStrForPopup = formatDateToYYYYMMDD(new Date());
+                                    if (!countyDisplayDateStatus && displayDateStrForPopup === todayActualDateStrForPopup) {
+                                        countyDisplayDateStatus = { status: 'normal', text: '照常上班、照常上課' };
+                                    } else if (!countyDisplayDateStatus) {
+                                        countyDisplayDateStatus = { status: 'no_info', text: '尚未發布資訊' };
                                     }
+
+                                    let countyNextDayStatus = countyInfo && countyInfo.dates[nextDayStrForPopup] ? countyInfo.dates[nextDayStrForPopup] : null;
+                                    if (!countyNextDayStatus) {
+                                        countyNextDayStatus = { status: 'no_info', text: '尚未發布資訊' };
+                                    }
+
+                                    // Display for currentDisplayDate
+                                    popupContent += `<span style="color:${getStyle(countyDisplayDateStatus.status).fillColor};">
+                                        ${formatDisplayDate(currentDisplayDate)}：${countyDisplayDateStatus.text}
+                                    </span><br>`;
+                                    
+                                    // Display for next day relative to currentDisplayDate
+                                    popupContent += `<span style="color:${getStyle(countyNextDayStatus.status).fillColor};">
+                                        ${formatDisplayDate(nextDayForPopup)}：${countyNextDayStatus.text}
+                                    </span>`;
+
+                                    // 在點擊彈出視窗中也顯示受影響鄉鎮資訊
+                                    if (countyInfo && countyInfo.hasTownshipSpecificData && townGeojson) {
+                                        const filteredTownFeatures = townGeojson.features.filter(f => normalizeName(f.properties.county) === countyName);
+                                        const affectedTownshipsInCounty = filteredTownFeatures.filter(townFeature => {
+                                            const townKey = normalizeName(townFeature.properties.county + townFeature.properties.town);
+                                            const townInfo = suspensionData[townKey];
+                                            return townInfo && (
+                                                (townInfo.dates[displayDateStrForPopup] && townInfo.dates[displayDateStrForPopup].status !== 'normal') ||
+                                                (townInfo.dates[nextDayStrForPopup] && townInfo.dates[nextDayStrForPopup].status !== 'normal')
+                                            );
+                                        });
+
+                                        if (affectedTownshipsInCounty.length > 0) {
+                                            popupContent += `<br><strong class="text-base">受影響鄉鎮:</strong>`;
+                                            affectedTownshipsInCounty.forEach(townFeature => { 
+                                                const townKey = normalizeName(townFeature.properties.county + townFeature.properties.town);
+                                                const info = suspensionData[townKey];
+                                                
+                                                let townDisplayDateStatus = info.dates[displayDateStrForPopup] || null;
+                                                if (!townDisplayDateStatus && displayDateStrForPopup === todayActualDateStrForPopup) {
+                                                    townDisplayDateStatus = { status: 'normal', text: `照常上班、照常上課` };
+                                                } else if (!townDisplayDateStatus) {
+                                                    townDisplayDateStatus = { status: 'no_info', text: `尚未發布資訊` };
+                                                }
+
+                                                let townNextDayStatus = info.dates[nextDayStrForPopup] || null;
+                                                if (!townNextDayStatus) {
+                                                    townNextDayStatus = { status: 'no_info', text: `尚未發布資訊` };
+                                                }
+
+                                                const townDisplayDateStatusColor = getStyle(townDisplayDateStatus.status).fillColor;
+                                                const townNextDayStatusColor = getStyle(townNextDayStatus.status).fillColor;
+                                                
+                                                popupContent += `<br><span class="ml-2 font-semibold">${townFeature.properties.town || '未知鄉鎮'}:</span>`; 
+                                                popupContent += `<br><span class="ml-4 text-sm" style="color:${townDisplayDateStatusColor};">
+                                                    ${formatDisplayDate(currentDisplayDate)}：${townDisplayDateStatus.text}
+                                                </span>`;
+                                                
+                                                popupContent += `<br><span class="ml-4 text-sm" style="color:${townNextDayStatusColor};">
+                                                    ${formatDisplayDate(nextDayForPopup)}：${townNextDayStatus.text}
+                                                </span>`;
+                                            });
+                                        }
+                                    }
+
                                     L.popup().setLatLng(e.latlng).setContent(popupContent).openOn(map); // 顯示彈出視窗
                                 }
                             });
@@ -713,47 +1005,6 @@
                         console.warn("未載入有效的縣市 GeoJSON 資料或地圖邊界無效，地圖將顯示預設視圖。");
                     }
 
-                    // 清空舊的鄉鎮圖層
-                    affectedTownshipLayers.clearLayers();
-
-                    // 直接繪製受影響的鄉鎮圖層
-                    if (townGeojson) {
-                        const affectedTownships = townGeojson.features.filter(f => {
-                            const townKey = normalizeName(f.properties.county + f.properties.town);
-                            const info = suspensionData[townKey];
-                            // 只有當鄉鎮有明確的停班課資訊（非正常狀態）時才繪製
-                            return info && (info.today.status !== 'normal' || info.tomorrow.status !== 'normal');
-                        });
-
-                        if (affectedTownships.length > 0) {
-                            L.geoJSON(affectedTownships, {
-                                style: feature => {
-                                    const townKey = normalizeName(feature.properties.county + feature.properties.town);
-                                    const info = suspensionData[townKey];
-                                    return getStyle(info && info.today ? info.today.status : 'normal');
-                                },
-                                onEachFeature: (feature, layer) => {
-                                    const townKey = normalizeName(feature.properties.county + feature.properties.town);
-                                    const townDisplayName = feature.properties.county + feature.properties.town;
-                                    const info = suspensionData[townKey];
-                                    let popupContent = `<strong class="text-base">${townDisplayName}</strong><br>`;
-                                    if (info) {
-                                        popupContent += `<span style="color:${getStyle(info.today.status).fillColor};">${info.today.text}</span><br>`;
-                                        // 修正：只有當有明確的明天資訊且狀態非正常時才顯示明天的詳細資訊
-                                        if (info.hasSpecificTomorrow && info.tomorrow.status !== 'normal') {
-                                            popupContent += `<span style="color:${getStyle(info.tomorrow.status).fillColor};">${info.tomorrow.text}</span>`;
-                                        } else {
-                                            popupContent += `<span class="text-gray-500">明天尚未發布資訊</span>`;
-                                        }
-                                    } else {
-                                        popupContent += `正常上班上課`;
-                                    }
-                                    layer.bindPopup(popupContent);
-                                    layer.bindTooltip(townDisplayName, { permanent: false, direction: 'center' });
-                                }
-                            }).addTo(affectedTownshipLayers); // 添加到鄉鎮圖層群組
-                        }
-                    }
                     // 將鄉鎮圖層群組添加到地圖，確保它在縣市圖層之上
                     affectedTownshipLayers.addTo(map);
 
@@ -762,13 +1013,21 @@
                     // 在地圖初始化後獲取 Leaflet 縮放控制按鈕的引用
                     zoomControlEl = document.querySelector('.leaflet-control-zoom');
 
+                    // Explicitly invalidate size after loader is hidden
+                    requestAnimationFrame(() => { // Wrapped in requestAnimationFrame
+                        console.log(`Invalidating size after loader hide. Map container dimensions: ${map._container?.offsetWidth}x${map._container?.offsetHeight}`);
+                        if (map._container && map._container.offsetWidth > 0 && map._container.offsetHeight > 0) {
+                            map.invalidateSize(true); 
+                        } else {
+                            console.warn("地圖容器尺寸無效，無法在載入後重新計算地圖尺寸。");
+                        }
+                    });
 
-                    // 資料載入後渲染離島資訊
-                    renderOutlyingIslandsInfo();
+                    // 初始顯示地圖和資訊
+                    refreshMapDisplay();
+
                     // 載入並渲染天氣快報
                     loadWeatherBulletins(); // 不需要 await，因為不阻擋地圖渲染
-
-                    // 移除了資訊提示彈出視窗的顯示邏輯
                 }); // 關閉 map.whenReady()
             } catch (error) {
                 console.error("無法渲染地圖或載入資料:", error);
@@ -788,36 +1047,39 @@
         }
 
         // 渲染離島資訊的函式
-        function renderOutlyingIslandsInfo() {
+        function renderOutlyingIslandsInfo(displayDate) {
             let content = '';
-            outlyingIslands.forEach(island => {
-                const islandInfo = suspensionData[normalizeName(island)]; // 使用 normalizeName 確保匹配
-                if (islandInfo) {
-                    const todayStatusColor = getStyle(islandInfo.today.status).fillColor;
-                    const tomorrowStatusColor = getStyle(islandInfo.tomorrow.status).fillColor;
+            const displayDateStr = formatDateToYYYYMMDD(displayDate);
+            const nextDay = new Date(displayDate);
+            nextDay.setDate(nextDay.getDate() + 1);
+            const nextDayStr = formatDateToYYYYMMDD(nextDay);
+            const todayActualDateStr = formatDateToYYYYMMDD(new Date()); // 實際的今天日期字串
 
-                    content += `
-                        <div class="mb-2">
-                            <h4 class="font-semibold text-gray-800">${island}</h4>
-                            <p class="text-sm" style="color:${todayStatusColor};">${islandInfo.today.text}</p>
-                    `;
-                    // 顯示明天的狀態，如果明確提到或與今天狀態不同
-                    if (islandInfo.hasSpecificTomorrow && islandInfo.tomorrow.status !== 'normal') {
-                        content += `<p class="text-sm" style="color:${tomorrowStatusColor};">${islandInfo.tomorrow.text}</p>`;
-                    } else { // 如果沒有明確的明天資訊或明天狀態為正常
-                         content += `<p class="text-sm text-gray-500">明天尚未發布資訊</p>`;
-                    }
-                    content += `</div>`;
-                } else {
-                    // 預設為離島沒有資訊時的顯示
-                    content += `
-                        <div class="mb-2">
-                            <h4 class="font-semibold text-gray-800">${island}</h4>
-                            <p class="text-sm text-blue-600">今天照常上班、照常上課</p>
-                            <p class="text-sm text-gray-500">明天尚未發布資訊</p> <!-- 這裡也改為尚未發布資訊 -->
-                        </div>
-                    `;
+            outlyingIslands.forEach(island => {
+                const islandInfo = suspensionData[normalizeName(island)];
+                
+                let islandDisplayDateStatus = islandInfo && islandInfo.dates[displayDateStr] ? islandInfo.dates[displayDateStr] : null;
+                if (!islandDisplayDateStatus && displayDateStr === todayActualDateStr) {
+                    islandDisplayDateStatus = { status: 'normal', text: '照常上班、照常上課' };
+                } else if (!islandDisplayDateStatus) {
+                    islandDisplayDateStatus = { status: 'no_info', text: '尚未發布資訊' };
                 }
+
+                let islandNextDayStatus = islandInfo && islandInfo.dates[nextDayStr] ? islandInfo.dates[nextDayStr] : null;
+                if (!islandNextDayStatus) {
+                    islandNextDayStatus = { status: 'no_info', text: '尚未發布資訊' };
+                }
+
+                const displayDateStatusColor = getStyle(islandDisplayDateStatus.status).fillColor;
+                const nextDayStatusColor = getStyle(islandNextDayStatus.status).fillColor;
+
+                content += `
+                    <div class="mb-2">
+                        <h4 class="font-semibold text-gray-800">${island}</h4>
+                        <p class="text-sm" style="color:${displayDateStatusColor};">${formatDisplayDate(displayDate)}：${islandDisplayDateStatus.text}</p>
+                `;
+                content += `<p class="text-sm" style="color:${nextDayStatusColor};">${formatDisplayDate(nextDay)}：${islandNextDayStatus.text}</p>`;
+                content += `</div>`;
             });
             if (content === '') {
                 outlyingIslandsInfoEl.innerHTML = `<p class="text-gray-600">目前無離島停班停課資訊。</p>`;
@@ -908,9 +1170,10 @@
             // 強制 Leaflet 地圖重新計算尺寸，確保版面正確
             // 延遲 300ms 配合 CSS 側邊欄過渡動畫
             setTimeout(() => {
+                console.log(`Invalidating size after sidebar toggle. Map container dimensions: ${map._container?.offsetWidth}x${map._container?.offsetHeight}`); // Added console log
                 // Add a check for map container dimensions before invalidating size
                 if (map._container && map._container.offsetWidth > 0 && map._container.offsetHeight > 0) {
-                    map.invalidateSize();
+                    map.invalidateSize(true); // Force immediate recalculation
                 } else {
                     console.warn("地圖容器尺寸無效，無法重新計算地圖尺寸。");
                 }
@@ -934,9 +1197,10 @@
                     zoomControlEl.style.display = 'block';
                 }
                 // 桌面版尺寸變化時也重新計算地圖尺寸
+                console.log(`Invalidating size after resize. Map container dimensions: ${map._container?.offsetWidth}x${map._container?.offsetHeight}`); // Added console log
                 // Add a check for map container dimensions before invalidating size
                 if (map._container && map._container.offsetWidth > 0 && map._container.offsetHeight > 0) {
-                    map.invalidateSize();
+                    map.invalidateSize(true); // Force immediate recalculation
                 } else {
                     console.warn("地圖容器尺寸無效，無法重新計算地圖尺寸。");
                 }
@@ -945,9 +1209,10 @@
 
         // 新增地圖縮放事件監聽器，確保縮放後地圖尺寸正確
         map.on('zoomend', () => {
+            console.log(`Invalidating size after zoomend. Map container dimensions: ${map._container?.offsetWidth}x${map._container?.offsetHeight}`); // Added console log
             // Add a check for map container dimensions before invalidating size
             if (map._container && map._container.offsetWidth > 0 && map._container.offsetHeight > 0) {
-                map.invalidateSize();
+                map.invalidateSize(true); // Force immediate recalculation
             } else {
                 console.warn("地圖容器尺寸無效，無法重新計算地圖尺寸。");
             }
@@ -955,6 +1220,20 @@
 
         // --- 5. 初始執行 ---
         renderMap();
+
+        // 日期切換按鈕事件監聽器
+        viewTodayBtn.addEventListener('click', () => {
+            currentDisplayDate = new Date(); // 重設為今天的日期
+            currentDisplayDate.setHours(0,0,0,0); // Normalize to start of day
+            refreshMapDisplay();
+        });
+
+        viewTomorrowBtn.addEventListener('click', () => {
+            currentDisplayDate = new Date(); // 先設為今天的日期
+            currentDisplayDate.setDate(currentDisplayDate.getDate() + 1); // 再加一天，變成明天的日期
+            currentDisplayDate.setHours(0,0,0,0); // Normalize to start of day
+            refreshMapDisplay();
+        });
 
     </script>
 </body>
