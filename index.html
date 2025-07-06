@@ -687,6 +687,11 @@
             }
         });
 
+        // 新增地圖縮放事件監聽器，確保縮放後地圖尺寸正確
+        map.on('zoomend', () => {
+            map.invalidateSize();
+        });
+
         // --- 5. 初始執行 ---
         renderMap();
 
