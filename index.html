@@ -292,9 +292,9 @@
         }).setView([23.9, 121], 7);
         
         // --- 2. 全域變數與 DOM 元素 ---
-        let geojsonLayer; // 縣市層 GeoJSON 圖層
-        let townGeojson = null; // 鄉鎮層 GeoJSON 原始資料
-        let townshipOverlayLayer = null; // 動態疊加的鄉鎮圖層
+        let countyGeojsonLayer; // 縣市層 GeoJSON 圖層
+        let townGeojson = null; // 鄉鎮層 GeoJSON 原始資料 (用於查找鄉鎮邊界)
+        let affectedTownshipLayers = L.layerGroup().addTo(map); // 儲存受影響鄉鎮的圖層群組，直接添加到地圖
 
         const infoPanel = document.getElementById('info-panel');
         const updateTimeEl = document.getElementById('update-time');
@@ -513,7 +513,7 @@
                 townGeojson = await townResponse.json(); // 儲存到全域變數
 
                 // 建立 Leaflet 縣市層 GeoJSON 圖層
-                geojsonLayer = L.geoJSON(countyData, {
+                countyGeojsonLayer = L.geoJSON(countyData, {
                     style: feature => {
                         const countyName = normalizeName(feature.properties.COUNTYNAME);
                         const info = suspensionData[countyName];
@@ -546,78 +546,44 @@
                                     panelContent += `<p class="mt-1 font-semibold text-gray-500">明天尚未發布資訊</p>`;
                                 }
 
-                                // 檢查是否有鄉鎮細部資訊需要疊加顯示
-                                if (countyInfo && countyInfo.hasTownshipSpecificData && townGeojson) {
-                                    // 移除之前的鄉鎮疊加層（如果存在）
-                                    if (townshipOverlayLayer) {
-                                        map.removeLayer(townshipOverlayLayer);
-                                        townshipOverlayLayer = null;
-                                    }
-
+                                // 這裡不再動態疊加鄉鎮圖層，因為我們希望直接顯示
+                                // 但仍然可以在面板中顯示鄉鎮受影響資訊
+                                if (countyInfo && countyInfo.hasTownshipSpecificData) {
                                     let townshipDetails = '';
                                     const filteredTownFeatures = townGeojson.features.filter(f => normalizeName(f.properties.county) === countyName);
-
-                                    // 篩選出有停班課資訊的鄉鎮
-                                    const affectedTownships = filteredTownFeatures.filter(townFeature => {
+                                    const affectedTownshipsInCounty = filteredTownFeatures.filter(townFeature => {
                                         const townKey = normalizeName(townFeature.properties.county + townFeature.properties.town);
                                         const townInfo = suspensionData[townKey];
                                         return townInfo && (townInfo.today.status !== 'normal' || townInfo.hasSpecificTomorrow || townInfo.tomorrow.status !== 'normal');
                                     });
 
-                                    if (affectedTownships.length > 0) {
+                                    if (affectedTownshipsInCounty.length > 0) {
                                         panelContent += `<h4 class="font-bold text-gray-700 mt-4">受影響鄉鎮資訊:</h4>`;
-                                        townshipOverlayLayer = L.geoJSON(affectedTownships, {
-                                            style: feature => {
-                                                const townKey = normalizeName(feature.properties.county + feature.properties.town);
-                                                const info = suspensionData[townKey];
-                                                // 鄉鎮層級的顏色反映其自身的狀態
-                                                return getStyle(info && info.today ? info.today.status : 'normal'); 
-                                            },
-                                            onEachFeature: (feature, layer) => {
-                                                const townKey = normalizeName(feature.properties.county + feature.properties.town);
-                                                const townDisplayName = feature.properties.county + feature.properties.town;
-                                                const info = suspensionData[townKey];
-                                                let popupContent = `<strong class="text-base">${townDisplayName}</strong><br>`;
-                                                if (info) {
-                                                    popupContent += `<span style="color:${getStyle(info.today.status).fillColor};">${info.today.text}</span><br>`;
-                                                    if (info.hasSpecificTomorrow || info.tomorrow.status !== 'normal') {
-                                                        popupContent += `<span style="color:${getStyle(info.tomorrow.status).fillColor};">${info.tomorrow.text}</span>`;
-                                                    } else {
-                                                        popupContent += `<span class="text-gray-500">明天尚未發布資訊</span>`;
-                                                    }
-                                                } else {
-                                                    popupContent += `正常上班上課`;
-                                                }
-                                                layer.bindPopup(popupContent); // 綁定鄉鎮的彈出視窗
-
-                                                // 將鄉鎮資訊添加到面板
-                                                const townTodayStatusColor = getStyle(info.today.status).fillColor;
-                                                const townTomorrowStatusColor = getStyle(info.tomorrow.status).fillColor;
-                                                townshipDetails += `<div class="mt-2 pl-4 border-l-2 border-gray-200">`;
-                                                townshipDetails += `<h4 class="font-semibold text-gray-700">${feature.properties.town}</h4>`;
-                                                townshipDetails += `<p class="text-sm" style="color:${townTodayStatusColor};">${info.today.text}</p>`;
-                                                if (info.hasSpecificTomorrow || info.tomorrow.status !== 'normal') {
-                                                    townshipDetails += `<p class="text-sm" style="color:${townTomorrowStatusColor};">${info.tomorrow.text}</p>`;
-                                                } else {
-                                                    townshipDetails += `<p class="text-sm text-gray-500">明天尚未發布資訊</p>`;
-                                                }
-                                                townshipDetails += `</div>`;
+                                        affectedTownshipsInCounty.forEach(townFeature => {
+                                            const townKey = normalizeName(townFeature.properties.county + townFeature.properties.town);
+                                            const info = suspensionData[townKey];
+                                            const townTodayStatusColor = getStyle(info.today.status).fillColor;
+                                            const townTomorrowStatusColor = getStyle(info.tomorrow.status).fillColor;
+                                            townshipDetails += `<div class="mt-2 pl-4 border-l-2 border-gray-200">`;
+                                            townshipDetails += `<h4 class="font-semibold text-gray-700">${feature.properties.town}</h4>`; // 這裡應該顯示鄉鎮名稱
+                                            townshipDetails += `<p class="text-sm" style="color:${townTodayStatusColor};">${info.today.text}</p>`;
+                                            if (info.hasSpecificTomorrow || info.tomorrow.status !== 'normal') {
+                                                townshipDetails += `<p class="text-sm" style="color:${townTomorrowStatusColor};">${info.tomorrow.text}</p>`;
+                                            } else {
+                                                townshipDetails += `<p class="text-sm text-gray-500">明天尚未發布資訊</p>`;
                                             }
-                                        }).addTo(map);
-                                        panelContent += townshipDetails; // 將鄉鎮詳細資訊加入面板
+                                            townshipDetails += `</div>`;
+                                        });
+                                        panelContent += townshipDetails;
                                     }
                                 }
 
                                 infoPanel.innerHTML = panelContent;
                             },
                             mouseout: e => {
-                                geojsonLayer.resetStyle(e.target); // 滑鼠移開時重置縣市樣式
+                                countyGeojsonLayer.resetStyle(e.target); // 滑鼠移開時重置縣市樣式
                                 infoPanel.innerHTML = `<p class="text-gray-600">請將滑鼠移至或點擊地圖上的縣市以查看資訊。</p>`;
-                                // 移除鄉鎮疊加層
-                                if (townshipOverlayLayer) {
-                                    map.removeLayer(townshipOverlayLayer);
-                                    townshipOverlayLayer = null;
-                                }
+                                // 這裡不再移除鄉鎮疊加層，因為它們是直接繪製的
                             },
                             click: e => {
                                 map.fitBounds(e.target.getBounds()); // 縮放至點擊的縣市
@@ -630,18 +596,84 @@
                                     } else {
                                         popupContent += `<span class="text-gray-500">明天尚未發布資訊</span>`;
                                     }
+
+                                    // 在點擊彈出視窗中也顯示受影響鄉鎮資訊
+                                    if (countyInfo.hasTownshipSpecificData && townGeojson) {
+                                        const filteredTownFeatures = townGeojson.features.filter(f => normalizeName(f.properties.county) === countyName);
+                                        const affectedTownshipsInCounty = filteredTownFeatures.filter(townFeature => {
+                                            const townKey = normalizeName(townFeature.properties.county + townFeature.properties.town);
+                                            const townInfo = suspensionData[townKey];
+                                            return townInfo && (townInfo.today.status !== 'normal' || townInfo.hasSpecificTomorrow || townInfo.tomorrow.status !== 'normal');
+                                        });
+
+                                        if (affectedTownshipsInCounty.length > 0) {
+                                            popupContent += `<br><strong class="text-base">受影響鄉鎮:</strong>`;
+                                            affectedTownshipsInCounty.forEach(townFeature => {
+                                                const townKey = normalizeName(townFeature.properties.county + townFeature.properties.town);
+                                                const info = suspensionData[townKey];
+                                                const townTodayStatusColor = getStyle(info.today.status).fillColor;
+                                                const townTomorrowStatusColor = getStyle(info.tomorrow.status).fillColor;
+                                                popupContent += `<br><span class="ml-2 font-semibold">${feature.properties.town}:</span>`; // 這裡應該顯示鄉鎮名稱
+                                                popupContent += `<br><span class="ml-4 text-sm" style="color:${townTodayStatusColor};">${info.today.text}</span>`;
+                                                if (info.hasSpecificTomorrow || info.tomorrow.status !== 'normal') {
+                                                    popupContent += `<br><span class="ml-4 text-sm" style="color:${townTomorrowStatusColor};">${info.tomorrow.text}</span>`;
+                                                } else {
+                                                    popupContent += `<br><span class="ml-4 text-sm text-gray-500">明天尚未發布資訊</span>`;
+                                                }
+                                            });
+                                        }
+                                    }
+
                                 } else {
-                                    popupContent += `正常上班上課`;
+                                    popupContent += `<br>正常上班上課`;
                                 }
-                                L.popup().setLatLng(e.latlng).setContent(popupContent).openOn(map); // 顯示縣市彈出視窗
+                                L.popup().setLatLng(e.latlng).setContent(popupContent).openOn(map); // 顯示彈出視窗
                             }
                         });
                     }
                 }).addTo(map);
 
                 // 將地圖視野調整到縣市 GeoJSON 圖層的邊界
-                if (geojsonLayer.getBounds().isValid()) {
-                    map.fitBounds(geojsonLayer.getBounds(), { padding: [20, 20] });
+                if (countyGeojsonLayer.getBounds().isValid()) {
+                    map.fitBounds(countyGeojsonLayer.getBounds(), { padding: [20, 20] });
+                }
+
+                // 直接繪製受影響的鄉鎮圖層
+                if (townGeojson) {
+                    const affectedTownships = townGeojson.features.filter(f => {
+                        const townKey = normalizeName(f.properties.county + f.properties.town);
+                        const info = suspensionData[townKey];
+                        // 只有當鄉鎮有明確的停班課資訊（非正常狀態）時才繪製
+                        return info && (info.today.status !== 'normal' || info.tomorrow.status !== 'normal');
+                    });
+
+                    if (affectedTownships.length > 0) {
+                        L.geoJSON(affectedTownships, {
+                            style: feature => {
+                                const townKey = normalizeName(feature.properties.county + feature.properties.town);
+                                const info = suspensionData[townKey];
+                                return getStyle(info && info.today ? info.today.status : 'normal');
+                            },
+                            onEachFeature: (feature, layer) => {
+                                const townKey = normalizeName(feature.properties.county + feature.properties.town);
+                                const townDisplayName = feature.properties.county + feature.properties.town;
+                                const info = suspensionData[townKey];
+                                let popupContent = `<strong class="text-base">${townDisplayName}</strong><br>`;
+                                if (info) {
+                                    popupContent += `<span style="color:${getStyle(info.today.status).fillColor};">${info.today.text}</span><br>`;
+                                    if (info.hasSpecificTomorrow || info.tomorrow.status !== 'normal') {
+                                        popupContent += `<span style="color:${getStyle(info.tomorrow.status).fillColor};">${info.tomorrow.text}</span>`;
+                                    } else {
+                                        popupContent += `<span class="text-gray-500">明天尚未發布資訊</span>`;
+                                    }
+                                } else {
+                                    popupContent += `正常上班上課`;
+                                }
+                                layer.bindPopup(popupContent);
+                                layer.bindTooltip(townDisplayName, { permanent: false, direction: 'center' });
+                            }
+                        }).addTo(affectedTownshipLayers); // 添加到鄉鎮圖層群組
+                    }
                 }
 
                 mapLoader.style.display = 'none'; // 隱藏載入中旋轉圖示
