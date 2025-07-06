@@ -198,6 +198,7 @@
                 <!-- 新增相關連結 -->
                 <p class="text-xs text-gray-500 mt-1">
                     相關連結：
+                    <a href="https://github.com/RBeeChen/taiwan-typhoon-map" target="_blank" class="text-blue-500 hover:underline">本專案GitHub</a> |
                     <a href="https://www.facebook.com/tw.alerts?locale=zh_TW" target="_blank" class="text-blue-500 hover:underline">Taiwan Alerts FB</a> | 
                     <a href="https://www.cwa.gov.tw/V8/C/" target="_blank" class="text-blue-500 hover:underline">中央氣象局</a>
                 </p>
@@ -355,30 +356,23 @@
         }
 
         // 修正狀態判斷邏輯 - 移至全域範圍
+        // isTownshipSpecific 參數用於判斷是否為鄉鎮層級的公告，以便更精確地判斷「部分區域」的意義
         const determineStatus = (stmt) => {
-            let currentStatus = 'normal'; // 預設為正常
-
             const isSuspendedKeyword = stmt.includes('停止上班') || stmt.includes('停止上課') || stmt.includes('已達停止上班及上課標準');
-            // 包含下午、晚上、中午、早上
             const isPartialTimeSuspension = stmt.includes('下午') || stmt.includes('晚上') || stmt.includes('中午') || stmt.includes('早上');
-            const isPartialAreaOrPersonnel = stmt.includes('除了') || stmt.includes('未達') || stmt.includes('僅');
+            // 判斷是否為「部分區域或特定人員」的關鍵字，這些將導致橘色狀態
+            const isSpecificAreaKeywords = stmt.includes('部分區域') || stmt.includes('特定人員') || stmt.includes('學校') || stmt.includes('鄰里');
 
-            // 優先判斷：部分區域或特定人員 (橘色)
-            if (isPartialAreaOrPersonnel) {
-                currentStatus = 'partial'; 
-            } 
-            // 次要判斷：非全天停止上班或上課 (黃色)
-            // 必須包含停課關鍵字且有下午/晚上/中午/早上資訊，且不屬於部分區域
-            else if (isSuspendedKeyword && isPartialTimeSuspension) {
-                currentStatus = 'partial_time'; 
+            if (isSuspendedKeyword) {
+                if (isSpecificAreaKeywords) {
+                    return 'partial'; // 橘色：部分區域或特定人員 (無論縣市或鄉鎮層級)
+                } else if (isPartialTimeSuspension) {
+                    return 'partial_time'; // 黃色：非全天停止 (上午、中午、下午、晚上)
+                } else {
+                    return 'suspended'; // 紅色：全天停止
+                }
             }
-            // 最後判斷：全天停止上班或上課 (紅色)
-            // 必須包含停課關鍵字，且不屬於黃色或橘色情況
-            else if (isSuspendedKeyword) { 
-                currentStatus = 'suspended'; 
-            }
-            // 如果以上都不符合，則維持 'normal' (藍色)
-            return currentStatus;
+            return 'normal'; // 藍色：正常上班上課
         };
 
         // Define status priority (higher index means higher priority) - Moved to global scope
@@ -526,20 +520,14 @@
                     };
                 }
 
-                // Special handling for parent counties if their townships are affected
+                // Special handling for parent counties: set hasTownshipSpecificData if any of its townships are affected
                 for (const key in suspensionData) {
                     const item = suspensionData[key];
                     if (item.isTownship && item.today.status !== 'normal') { // If a township is affected today
                         const parentCountyKey = item.parentCounty;
                         if (suspensionData[parentCountyKey]) {
+                            // Only set this flag; DO NOT change the parent county's 'today.status' based on township.
                             suspensionData[parentCountyKey].hasTownshipSpecificData = true;
-                            // If the parent county is currently "normal" but has an affected township,
-                            // update its status to 'partial' to indicate some areas are affected.
-                            // Only update if the current county status is 'normal' or 'partial' (to avoid overwriting 'suspended')
-                            if (statusPriority.indexOf(suspensionData[parentCountyKey].today.status) < statusPriority.indexOf('partial')) {
-                                suspensionData[parentCountyKey].today.status = 'partial';
-                                suspensionData[parentCountyKey].today.text = `${parentCountyKey}部分區域停止上班上課`;
-                            }
                         }
                     }
                 }
@@ -592,7 +580,7 @@
                         townshipDetails += `<h4 class="font-semibold text-gray-700">${townFeature.properties.town || '未知鄉鎮'}</h4>`; 
                         townshipDetails += `<p class="text-sm" style="color:${townTodayStatusColor};">${info.today.text}</p>`;
                         if (info.hasSpecificTomorrow || info.tomorrow.status !== 'normal') {
-                            popupContent += `<br><span class="ml-4 text-sm" style="color:${townTomorrowStatusColor};">${info.tomorrow.text}</span>`;
+                            townshipDetails += `<p class="text-sm" style="color:${townTomorrowStatusColor};">${info.tomorrow.text}</p>`;
                         } else {
                             townshipDetails += `<p class="text-sm text-gray-500">明天尚未發布資訊</p>`;
                         }
