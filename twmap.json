@@ -5,8 +5,8 @@
             "type": "Feature",
             "properties": {
                 "COUNTYSN": "10014001",
-                "COUNTYNAME": "台東縣",
-                "name": "台東縣"
+                "COUNTYNAME": "臺東縣",
+                "name": "臺東縣"
             },
             "geometry": {
                 "type": "MultiPolygon",
@@ -1675,8 +1675,8 @@
             "type": "Feature",
             "properties": {
                 "COUNTYSN": "63000001",
-                "COUNTYNAME": "台北市",
-                "name": "台北市"
+                "COUNTYNAME": "臺北市",
+                "name": "臺北市"
             },
             "geometry": {
                 "type": "Polygon",
@@ -3751,8 +3751,8 @@
             "type": "Feature",
             "properties": {
                 "COUNTYSN": "10006001",
-                "COUNTYNAME": "台中市",
-                "name": "台中市"
+                "COUNTYNAME": "臺中市",
+                "name": "臺中市"
             },
             "geometry": {
                 "type": "Polygon",
@@ -4426,8 +4426,8 @@
             "type": "Feature",
             "properties": {
                 "COUNTYSN": "10011001",
-                "COUNTYNAME": "台南市",
-                "name": "台南市"
+                "COUNTYNAME": "臺南市",
+                "name": "臺南市"
             },
             "geometry": {
                 "type": "Polygon",
