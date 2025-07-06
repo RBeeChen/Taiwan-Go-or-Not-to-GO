@@ -8,7 +8,7 @@ const proxyURL = 'https://corsproxy.io/?';
 const countyGeojsonURL = 'https://github.com/RBeeChen/taiwan-typhoon-map/raw/refs/heads/main/twmap.json'; 
 // 鄉鎮層級 GeoJSON
 const townGeojsonURL = 'https://github.com/RBeeChen/taiwan-typhoon-map/releases/download/NEW_JSON/TW_town.json'; 
-// 停班課 JSON Feed URL
+// 停班課 JSON Feed URL (修正為 JSON 格式的資料來源)
 const jsonFeedURL = 'https://alerts.ncdr.nat.gov.tw/JSONAtomFeed.ashx?AlertType=33';
 // 中央氣象局天氣快報 RSS URL
 const cwaWarningRSSURL = 'https://www.cwa.gov.tw/rss/Data/cwa_warning.xml'; 
@@ -129,6 +129,7 @@ const statusPriority = ['normal', 'partial', 'partial_time', 'suspended'];
 // --- 5. 資料抓取與處理 ---
 async function loadSuspensionData() {
     try {
+        // 修正：從 jsonFeedURL 獲取 JSON 資料
         const response = await fetch(`${proxyURL}${encodeURIComponent(jsonFeedURL)}`);
         if (!response.ok) throw new Error(`JSON Feed fetch failed: ${response.status}`);
         
