@@ -366,14 +366,38 @@
                     const cleanSummary = summary.replace(/\[.*?\]/g, '').trim(); // 移除括號內的資訊
                     if (!cleanSummary.includes(':')) return; // 如果沒有冒號分隔符則跳過
 
-                    let [county, statusText] = cleanSummary.split(/:(.*)/s);
-                    if (!county || !statusText) return;
+                    let [countyRaw, statusText] = cleanSummary.split(/:(.*)/s);
+                    if (!countyRaw || !statusText) return;
 
-                    county = normalizeCountyName(county.trim());
                     statusText = statusText.trim();
 
+                    // 優化縣市名稱提取邏輯：
+                    // 1. 移除括號內的內容 (如 "(東引鄉)")
+                    // 2. 移除 "部分區域", "災害應變中心" 等描述性文字
+                    // 3. 確保只保留縣市的基礎名稱 (例如 "臺南市" 而非 "臺南市部分區域")
+                    let baseCountyName = countyRaw
+                        .replace(/\(.*?\)/g, '') // 移除括號內的內容
+                        .replace(/部分區域/g, '') // 移除「部分區域」
+                        .replace(/災害應變中心/g, '') // 移除「災害應變中心」
+                        .trim();
+
+                    // 再次檢查是否能匹配到標準的縣市鄉區結尾，確保只取到縣市名稱
+                    const finalCountyMatch = baseCountyName.match(/^(.*?)(市|縣|鄉|區)/);
+                    if (finalCountyMatch && finalCountyMatch[1] && finalCountyMatch[2]) {
+                        baseCountyName = finalCountyMatch[1].trim() + finalCountyMatch[2].trim();
+                    } else {
+                        // 如果經過上述處理仍無法得到標準縣市名稱，則退回使用原始的 countyRaw
+                        // 這樣能避免因過度處理而丟失縣市名稱，並依賴 normalizeCountyName 處理「臺/台」
+                        baseCountyName = countyRaw.trim(); 
+                    }
+                    
+                    // 標準化縣市名稱（將「臺」轉換為「台」）
+                    const county = normalizeCountyName(baseCountyName);
+
+                    if (statusText.includes('尚未列入警戒區')) return; // 跳過非警戒區域
+
                     // 初始化縣市的今天和明天狀態為正常，明天預設為「尚未發布資訊」
-                    const countyData = {
+                    const countyData = suspensionData[county] || {
                         today: { status: 'normal', text: '今天照常上班、照常上課' },
                         tomorrow: { status: 'normal', text: '明天尚未發布資訊' }, // 預設為尚未發布
                         hasSpecificTomorrow: false // 標記明天是否有明確資訊
