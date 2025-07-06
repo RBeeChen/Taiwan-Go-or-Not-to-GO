@@ -232,7 +232,7 @@
                     </div>
                     <div class="flex items-center">
                         <div class="w-5 h-5 rounded-md mr-2" style="background-color: #facc15;"></div> <!-- 黃色 -->
-                        <span class="text-sm text-gray-700">非全天停止上班或上課 (例如下午停課)</span>
+                        <span class="text-sm text-gray-700">非全天停止上班或上課 (例如上午、中午、下午、晚上停課)</span>
                     </div>
                      <div class="flex items-center">
                         <div class="w-5 h-5 rounded-md mr-2" style="background-color: #f97316;"></div>
@@ -343,7 +343,7 @@
             const baseStyle = { weight: 1.5, opacity: 1, color: 'white', fillOpacity: 0.8 };
             switch (status) {
                 case 'suspended': return { ...baseStyle, fillColor: '#ef4444' }; // 紅色：全天停止上班上課
-                case 'partial_time': return { ...baseStyle, fillColor: '#facc15' }; // 黃色：非全天停止上班上課 (下午/晚上)
+                case 'partial_time': return { ...baseStyle, fillColor: '#facc15' }; // 黃色：非全天停止上班上課 (例如上午、中午、下午、晚上停課)
                 case 'partial': return { ...baseStyle, fillColor: '#f97316' };   // 橘色：部分區域或特定人員
                 case 'normal': default: return { ...baseStyle, fillColor: '#3b82f6' }; // 藍色：正常上班上課
             }
@@ -467,7 +467,8 @@
                         let currentStatus = 'normal'; // 預設為正常
 
                         const isSuspendedKeyword = stmt.includes('停止上班') || stmt.includes('停止上課') || stmt.includes('已達停止上班及上課標準');
-                        const isAfternoonOrEvening = stmt.includes('下午') || stmt.includes('晚上');
+                        // 包含下午、晚上、中午、早上
+                        const isPartialTimeSuspension = stmt.includes('下午') || stmt.includes('晚上') || stmt.includes('中午') || stmt.includes('早上');
                         const isPartialAreaOrPersonnel = stmt.includes('除了') || stmt.includes('未達') || stmt.includes('僅');
 
                         // 優先判斷：部分區域或特定人員 (橘色)
@@ -475,8 +476,8 @@
                             currentStatus = 'partial'; 
                         } 
                         // 次要判斷：非全天停止上班或上課 (黃色)
-                        // 必須包含停課關鍵字且有下午/晚上資訊，且不屬於部分區域
-                        else if (isSuspendedKeyword && isAfternoonOrEvening) {
+                        // 必須包含停課關鍵字且有下午/晚上/中午/早上資訊，且不屬於部分區域
+                        else if (isSuspendedKeyword && isPartialTimeSuspension) {
                             currentStatus = 'partial_time'; 
                         }
                         // 最後判斷：全天停止上班或上課 (紅色)
