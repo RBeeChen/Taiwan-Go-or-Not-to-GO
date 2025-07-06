@@ -338,7 +338,7 @@
         function getStyle(status) {
             const baseStyle = { weight: 1.5, opacity: 1, color: 'white', fillOpacity: 0.8 };
             switch (status) {
-                case 'suspended': return { ...baseStyle, fillColor: '#ef4444' }; // 紅色：停止上班上課
+                case 'suspended': return { ...baseStyle, fillColor: '#ef4444' }; // 紅色：停止上班上課 (包含下午/晚上停課)
                 case 'partial': return { ...baseStyle, fillColor: '#f97316' };   // 橘色：部分區域或特定人員
                 case 'normal': default: return { ...baseStyle, fillColor: '#3b82f6' }; // 藍色：正常上班上課
             }
@@ -453,40 +453,34 @@
                         parentCounty: parentCountyName // 儲存所屬縣市名稱
                     };
 
-                    // 解析今天和明天的狀態
-                    const todayMatch = statusText.match(/(今天[^。；]*?(停止上班|照常上班|已達停止上班及上課標準)[^。；]*?)/);
-                    const tomorrowMatch = statusText.match(/(明天[^。；]*?(停止上班|照常上班|已達停止上班及上課標準)[^。；]*?)/);
+                    // --- 修正狀態判斷邏輯 ---
+                    const determineStatus = (stmt) => {
+                        let currentStatus = 'normal';
+                        const isFullSuspension = stmt.includes('停止上班') || stmt.includes('停止上課') || stmt.includes('已達停止上班及上課標準');
+                        const isAfternoonOrEveningSuspension = stmt.includes('下午') || stmt.includes('晚上');
+                        const isPartialAreaOrPersonnel = stmt.includes('除了') || stmt.includes('未達') || stmt.includes('僅');
+
+                        if (isFullSuspension || isAfternoonOrEveningSuspension) {
+                            currentStatus = 'suspended'; // 全天停課或下午/晚上停課都標記為紅色
+                        } else if (isPartialAreaOrPersonnel) {
+                            currentStatus = 'partial'; // 僅部分區域或特定人員停課標記為橘色
+                        }
+                        return currentStatus;
+                    };
+
 
                     if (todayMatch && todayMatch[0]) {
                         const stmt = todayMatch[0].trim();
-                        let currentStatus = 'normal';
-                        let isSuspended = stmt.includes('停止上班') || stmt.includes('停止上課') || stmt.includes('已達停止上班及上課標準');
-                        let isPartial = stmt.includes('下午') || stmt.includes('晚上') || stmt.includes('除了') || stmt.includes('未達') || stmt.includes('僅');
-                        if (isSuspended) {
-                            currentStatus = isPartial ? 'partial' : 'suspended';
-                        }
-                        entryData.today = { status: currentStatus, text: stmt };
+                        entryData.today = { status: determineStatus(stmt), text: stmt };
                     } else if (!statusText.includes('今天') && !statusText.includes('明天')) {
                         // 如果沒有明確的「今天」或「明天」語句，則將整個 statusText 視為今天的狀態
-                        let currentStatus = 'normal';
-                        let isSuspended = statusText.includes('停止上班') || statusText.includes('停止上課') || statusText.includes('已達停止上班及上課標準');
-                        let isPartial = statusText.includes('下午') || statusText.includes('晚上') || statusText.includes('除了') || statusText.includes('未達') || statusText.includes('僅');
-                        if (isSuspended) {
-                            currentStatus = isPartial ? 'partial' : 'suspended';
-                        }
-                        // 為確保語意清晰，在前面加上「今天」
-                        entryData.today = { status: currentStatus, text: `今天${statusText}` }; 
+                        const stmt = statusText.trim();
+                        entryData.today = { status: determineStatus(stmt), text: `今天${stmt}` }; 
                     }
 
                     if (tomorrowMatch && tomorrowMatch[0]) {
                         const stmt = tomorrowMatch[0].trim();
-                        let currentStatus = 'normal';
-                        let isSuspended = stmt.includes('停止上班') || stmt.includes('停止上課') || stmt.includes('已達停止上班及上課標準');
-                        let isPartial = stmt.includes('下午') || stmt.includes('晚上') || stmt.includes('除了') || stmt.includes('未達') || stmt.includes('僅');
-                        if (isSuspended) {
-                            currentStatus = isPartial ? 'partial' : 'suspended';
-                        }
-                        entryData.tomorrow = { status: currentStatus, text: stmt };
+                        entryData.tomorrow = { status: determineStatus(stmt), text: stmt };
                         entryData.hasSpecificTomorrow = true;
                     }
 
