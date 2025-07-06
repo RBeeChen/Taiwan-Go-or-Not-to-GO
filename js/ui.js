@@ -77,7 +77,7 @@ export function refreshMapDisplay(currentDisplayDate) {
 
     renderOutlyingIslandsInfo(currentDisplayDate);
 
-    if (map._container && map._container.offsetWidth > 0 && map._container.offsetHeight > 0) {
+    if (map && map._container && map._container.offsetWidth > 0 && map._container.offsetHeight > 0) {
         map.invalidateSize(true);
     } else {
         console.warn("地圖容器尺寸無效，無法重新計算地圖尺寸。");
@@ -128,12 +128,6 @@ export function updateInfoPanel(countyName, displayName, displayDate) {
 
     if (countyInfo && countyInfo.hasTownshipSpecificData && countyDisplayDateStatus.status !== 'suspended') { 
         let townshipDetails = '';
-        // 這裡需要 townGeojson，但它在 map.js 中。為了避免循環依賴，這裡假設 renderTownshipsForCounty 會處理鄉鎮資料的查找。
-        // 或者，如果需要在這裡直接使用 townGeojson，則需要將其從 map.js 導出並在此處導入，但這可能導致循環依賴。
-        // 更好的做法是讓 map.js 負責所有地圖相關的渲染，ui.js 僅負責顯示資訊。
-        // 因此，這裡的邏輯將只基於 suspensionData 中已處理的 hasTownshipSpecificData 標記。
-
-        // 檢查是否有明確的鄉鎮停班課資訊 (需要遍歷 suspensionData 查找屬於該縣市的鄉鎮)
         const affectedTownshipsInCounty = Object.keys(suspensionData).filter(key => {
             const item = suspensionData[key];
             return item.isTownship && normalizeName(item.parentCounty) === normalizeName(countyName) && 
@@ -145,7 +139,8 @@ export function updateInfoPanel(countyName, displayName, displayDate) {
             panelContent += `<h4 class="font-bold text-gray-700 mt-4">受影響鄉鎮資訊:</h4>`;
             affectedTownshipsInCounty.forEach(townKey => { 
                 const info = suspensionData[townKey];
-                const townDisplayName = townKey; // 這裡簡化，實際應從 townGeojson 獲取原始名稱
+                // 這裡假設 townKey 已經包含完整的鄉鎮名稱 (例如 "桃園市復興區")
+                const townDisplayName = townKey; 
 
                 let townDisplayDateStatus = info.dates[displayDateStr] || null;
                 if (!townDisplayDateStatus && displayDateStr === todayActualDateStr) {
@@ -235,6 +230,7 @@ export function renderOutlyingIslandsInfo(displayDate) {
 export function showErrorMessage(message) {
     errorMessageEl.textContent = message;
     errorDetailModal.style.display = 'flex';
+    lastErrorMessage = message; // 儲存錯誤訊息，以便「顯示錯誤詳情」按鈕使用
 }
 
 /**
@@ -253,7 +249,7 @@ export function toggleSidebar() {
     }
 
     setTimeout(() => {
-        if (map._container && map._container.offsetWidth > 0 && map._container.offsetHeight > 0) {
+        if (map && map._container && map._container.offsetWidth > 0 && map._container.offsetHeight > 0) {
             map.invalidateSize(true); 
         } else {
             console.warn("地圖容器尺寸無效，無法重新計算地圖尺寸。");
@@ -267,6 +263,7 @@ export function toggleSidebar() {
  * @param {Function} refreshMapDisplay - 重新整理地圖顯示的回呼函數。
  */
 export function setupUIEventListeners(currentDisplayDate, refreshMapDisplay) {
+    // 確保這裡的 showErrorMessage 使用的是從 ui.js 導出的版本
     showErrorBtn.addEventListener('click', () => showErrorMessage(lastErrorMessage));
 
     errorDetailCloseBtn.addEventListener('click', () => {
@@ -290,7 +287,7 @@ export function setupUIEventListeners(currentDisplayDate, refreshMapDisplay) {
             if (zoomControlEl) {
                 zoomControlEl.style.display = 'block';
             }
-            if (map._container && map._container.offsetWidth > 0 && map._container.offsetHeight > 0) {
+            if (map && map._container && map._container.offsetWidth > 0 && map._container.offsetHeight > 0) {
                 map.invalidateSize(true);
             } else {
                 console.warn("地圖容器尺寸無效，無法重新計算地圖尺寸。");
@@ -299,7 +296,7 @@ export function setupUIEventListeners(currentDisplayDate, refreshMapDisplay) {
     });
 
     map.on('zoomend', () => {
-        if (map._container && map._container.offsetWidth > 0 && map._container.offsetHeight > 0) {
+        if (map && map._container && map._container.offsetWidth > 0 && map._container.offsetHeight > 0) {
             map.invalidateSize(true);
         } else {
             console.warn("地圖容器尺寸無效，無法重新計算地圖尺寸。");
@@ -307,7 +304,7 @@ export function setupUIEventListeners(currentDisplayDate, refreshMapDisplay) {
     });
 
     viewTodayBtn.addEventListener('click', () => {
-        currentDisplayDate.setTime(new Date().setHours(0,0,0,0)); // 直接修改物件，確保引用一致
+        currentDisplayDate.setTime(new Date().setHours(0,0,0,0));
         refreshMapDisplay(currentDisplayDate);
     });
 
@@ -315,7 +312,7 @@ export function setupUIEventListeners(currentDisplayDate, refreshMapDisplay) {
         const tomorrow = new Date();
         tomorrow.setDate(tomorrow.getDate() + 1);
         tomorrow.setHours(0,0,0,0);
-        currentDisplayDate.setTime(tomorrow.getTime()); // 直接修改物件
+        currentDisplayDate.setTime(tomorrow.getTime());
         refreshMapDisplay(currentDisplayDate);
     });
 }
