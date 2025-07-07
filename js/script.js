@@ -21,7 +21,8 @@ const map = L.map('map', {
 // --- 2. 全域變數與 DOM 元素 ---
 let countyGeojsonLayer; // 縣市層 GeoJSON 圖層 (主要用於獲取縣市名稱和邊界，不再用於繪製主要地圖)
 let townGeojson = null; // 鄉鎮層 GeoJSON 原始資料 (用於查找鄉鎮邊界)
-let affectedTownshipLayers = L.layerGroup(); // 用於存放所有鄉鎮圖層
+// affectedTownshipLayers 不再用於地圖繪製，僅用於資料處理和資訊面板顯示
+let affectedTownshipLayers = L.layerGroup(); 
 
 const infoPanel = document.getElementById('info-panel');
 const updateTimeEl = document.getElementById('update-time');
@@ -387,6 +388,13 @@ async function loadSuspensionData() {
                 }
             });
         });
+        
+        // Debugging: Log Taoyuan's aggregated status for today
+        const taoyuanName = normalizeName('桃園市');
+        const todayStr = formatDateToYYYYMMDD(new Date());
+        if (suspensionData[taoyuanName] && suspensionData[taoyuanName].dates[todayStr]) {
+            console.log(`桃園市今天的聚合狀態為: ${suspensionData[taoyuanName].dates[todayStr].status}`);
+        }
 
     } catch (error) {
         console.error("無法載入停班停課資料:", error);
@@ -454,7 +462,7 @@ async function renderMap() { // 這是地圖渲染的主要入口點
         if (!countyResponse.ok) throw new Error(`County GeoJSON fetch failed: ${countyResponse.status} - ${countyResponse.statusText}`);
         const countyData = await countyResponse.json();
 
-        // 載入鄉鎮層級 GeoJSON 資料 (不立即添加到地圖)
+        // 載入鄉鎮層級 GeoJSON 資料 (僅用於資訊面板和彈出視窗，不繪製在地圖上)
         const townResponse = await fetch(`${proxyURL}${encodeURIComponent(townGeojsonURL)}`);
         if (!townResponse.ok) throw new Error(`Town GeoJSON fetch failed: ${townResponse.status} - ${townResponse.statusText}`);
         townGeojson = await townResponse.json(); // 儲存到全域變數
@@ -593,7 +601,7 @@ async function renderMap() { // 這是地圖渲染的主要入口點
                         }
                     });
                 }
-            }).addTo(map); // 先將縣市圖層添加到地圖
+            }).addTo(map); // 將縣市圖層添加到地圖
 
             // 將地圖視野調整到縣市 GeoJSON 圖層的邊界
             const bounds = countyGeojsonLayer.getBounds();
@@ -609,74 +617,9 @@ async function renderMap() { // 這是地圖渲染的主要入口點
                 console.warn("未載入有效的縣市 GeoJSON 資料或地圖邊界無效，地圖將顯示預設視圖。");
             }
 
-            // 清空舊的鄉鎮圖層
-            affectedTownshipLayers.clearLayers();
-
-            // 直接繪製受影響的鄉鎮圖層
-            if (townGeojson) {
-                const nextDayRelativeToDisplay = new Date(currentDisplayDate);
-                nextDayRelativeToDisplay.setDate(nextDayRelativeToDisplay.getDate() + 1);
-                const nextDayRelativeToDisplayStr = formatDateToYYYYMMDD(nextDayRelativeToDisplay);
-
-                const affectedTownships = townGeojson.features.filter(f => {
-                    const townKey = normalizeName(f.properties.county + f.properties.town);
-                    const info = suspensionData[townKey];
-                    // 只有當鄉鎮在顯示日期或其隔天有明確的非正常停班課資訊時才繪製
-                    return info && (
-                        (info.dates[formatDateToYYYYMMDD(currentDisplayDate)] && info.dates[formatDateToYYYYMMDD(currentDisplayDate)].status !== 'normal') ||
-                        (info.dates[nextDayRelativeToDisplayStr] && info.dates[nextDayRelativeToDisplayStr].status !== 'normal')
-                    );
-                });
-
-                if (affectedTownships.length > 0) {
-                    L.geoJSON(affectedTownships, {
-                        style: feature => {
-                            const townKey = normalizeName(feature.properties.county + feature.properties.town);
-                            const info = suspensionData[townKey];
-                            let statusToDisplay = 'no_info'; // 預設為灰色 (針對非今天)
-                            if (info && info.dates[formatDateToYYYYMMDD(currentDisplayDate)]) {
-                                statusToDisplay = info.dates[formatDateToYYYYMMDD(currentDisplayDate)].status;
-                            } else if (formatDateToYYYYMMDD(currentDisplayDate) === formatDateToYYYYMMDD(new Date())) {
-                                // 如果是今天的日期，且沒有明確資訊，則預設為正常
-                                statusToDisplay = 'normal';
-                            }
-                            return getStyle(statusToDisplay);
-                        },
-                        onEachFeature: (feature, layer) => {
-                            const townKey = normalizeName(feature.properties.county + feature.properties.town);
-                            const townDisplayName = feature.properties.county + feature.properties.town;
-                            const info = suspensionData[townKey];
-
-                            let townDisplayDateStatus = info && info.dates[formatDateToYYYYMMDD(currentDisplayDate)] ? info.dates[formatDateToYYYYMMDD(currentDisplayDate)] : null;
-                            if (!townDisplayDateStatus && formatDateToYYYYMMDD(currentDisplayDate) === formatDateToYYYYMMDD(new Date())) {
-                                townDisplayDateStatus = { status: 'normal', text: `照常上班、照常上課` };
-                            } else if (!townDisplayDateStatus) {
-                                townDisplayDateStatus = { status: 'no_info', text: `尚未發布資訊` };
-                            }
-
-                            let townNextDayStatus = info && info.dates[nextDayRelativeToDisplayStr] ? info.dates[nextDayRelativeToDisplayStr] : null;
-                            if (!townNextDayStatus) {
-                                townNextDayStatus = { status: 'no_info', text: `尚未發布資訊` };
-                            }
-
-                            let popupContent = `<strong class="text-base">${townDisplayName}</strong><br>`;
-                            
-                            // Display for currentDisplayDate
-                            popupContent += `<span style="color:${getStyle(townDisplayDateStatus.status).fillColor};">
-                                ${formatDisplayDate(currentDisplayDate)}：${townDisplayDateStatus.text}
-                            </span><br>`;
-                            
-                            // Display for next day relative to currentDisplayDate
-                            popupContent += `<span style="color:${getStyle(townNextDayStatus.status).fillColor};">
-                                ${formatDisplayDate(nextDayRelativeToDisplay)}：${townNextDayStatus.text}
-                            </span>`;
-                            layer.bindPopup(popupContent);
-                            layer.bindTooltip(townDisplayName, { permanent: false, direction: 'center' });
-                        }
-                    }).addTo(affectedTownshipLayers);
-                }
-            }
-            affectedTownshipLayers.addTo(map); // 將鄉鎮圖層群組添加到地圖，確保它在縣市圖層之上
+            // affectedTownshipLayers 不再繪製在地圖上，僅用於資料處理和資訊面板
+            // affectedTownshipLayers.clearLayers(); // 保持清空狀態
+            // affectedTownshipLayers.addTo(map); // 不再添加到地圖
 
             mapLoader.style.display = 'none'; // 隱藏載入中旋轉圖示
 
@@ -737,72 +680,11 @@ function refreshMapDisplay() {
         });
     }
 
-    // 清空舊的鄉鎮圖層並重新繪製
-    affectedTownshipLayers.clearLayers(); 
-    if (townGeojson) {
-        const nextDayRelativeToDisplay = new Date(currentDisplayDate);
-        nextDayRelativeToDisplay.setDate(nextDayRelativeToDisplay.getDate() + 1);
-        const nextDayRelativeToDisplayStr = formatDateToYYYYMMDD(nextDayRelativeToDisplay);
-
-        const affectedTownships = townGeojson.features.filter(f => {
-            const townKey = normalizeName(f.properties.county + f.properties.town);
-            const info = suspensionData[townKey];
-            // 只有當鄉鎮在顯示日期或其隔天有明確的非正常停班課資訊時才繪製
-            return info && (
-                (info.dates[displayDateStr] && info.dates[displayDateStr].status !== 'normal') ||
-                (info.dates[nextDayRelativeToDisplayStr] && info.dates[nextDayRelativeToDisplayStr].status !== 'normal')
-            );
-        });
-
-        if (affectedTownships.length > 0) {
-            L.geoJSON(affectedTownships, {
-                style: feature => {
-                    const townKey = normalizeName(feature.properties.county + feature.properties.town);
-                    const info = suspensionData[townKey];
-                    let statusToDisplay = 'no_info'; // 預設為灰色 (針對非今天)
-                    if (info && info.dates[displayDateStr]) {
-                        statusToDisplay = info.dates[displayDateStr].status;
-                    } else if (displayDateStr === todayActualDateStr) {
-                        // 如果是今天的日期，且沒有明確資訊，則預設為正常
-                        statusToDisplay = 'normal';
-                    }
-                    return getStyle(statusToDisplay);
-                },
-                onEachFeature: (feature, layer) => {
-                    const townKey = normalizeName(feature.properties.county + feature.properties.town);
-                    const townDisplayName = feature.properties.county + feature.properties.town;
-                    const info = suspensionData[townKey];
-
-                    let townDisplayDateStatus = info && info.dates[displayDateStr] ? info.dates[displayDateStr] : null;
-                    if (!townDisplayDateStatus && displayDateStr === todayActualDateStr) {
-                        townDisplayDateStatus = { status: 'normal', text: `照常上班、照常上課` };
-                    } else if (!townDisplayDateStatus) {
-                        townDisplayDateStatus = { status: 'no_info', text: `尚未發布資訊` };
-                    }
-
-                    let townNextDayStatus = info && info.dates[nextDayRelativeToDisplayStr] ? info.dates[nextDayRelativeToDisplayStr] : null;
-                    if (!townNextDayStatus) {
-                        townNextDayStatus = { status: 'no_info', text: `尚未發布資訊` };
-                    }
-
-                    let popupContent = `<strong class="text-base">${townDisplayName}</strong><br>`;
-                    
-                    // Display for currentDisplayDate
-                    popupContent += `<span style="color:${getStyle(townDisplayDateStatus.status).fillColor};">
-                        ${formatDisplayDate(currentDisplayDate)}：${townDisplayDateStatus.text}
-                    </span><br>`;
-                    
-                    // Display for next day relative to currentDisplayDate
-                    popupContent += `<span style="color:${getStyle(townNextDayStatus.status).fillColor};">
-                        ${formatDisplayDate(nextDayRelativeToDisplay)}：${townNextDayStatus.text}
-                    </span>`;
-                    layer.bindPopup(popupContent);
-                    layer.bindTooltip(townDisplayName, { permanent: false, direction: 'center' });
-                }
-            }).addTo(affectedTownshipLayers);
-        }
-    }
-    affectedTownshipLayers.addTo(map); // 將更新後的鄉鎮圖層群組添加到地圖
+    // affectedTownshipLayers 不再繪製在地圖上，所以不需要在此處更新其繪製狀態
+    // 清空舊的鄉鎮圖層並重新繪製 (此處僅為資料處理，不影響地圖視覺)
+    // affectedTownshipLayers.clearLayers(); 
+    // if (townGeojson) { /* ... 相關鄉鎮資料處理邏輯 ... */ }
+    // affectedTownshipLayers.addTo(map); // 不再添加到地圖
 
     // 更新資訊面板 (如果之前有選取縣市，則更新該縣市資訊)
     const currentCountyNameInPanel = infoPanel.dataset.countyName;
@@ -995,7 +877,7 @@ function setupEventListeners() {
             if (zoomControlEl) {
                 zoomControlEl.style.display = 'block';
             }
-            if (map && map._container && map._container.offsetWidth > 0 && map._container.offsetHeight > 0) {
+            if (map._container && map._container.offsetWidth > 0 && map._container.offsetHeight > 0) {
                 map.invalidateSize(true);
             } else {
                 console.warn("地圖容器尺寸無效，無法重新計算地圖尺寸。");
@@ -1004,7 +886,7 @@ function setupEventListeners() {
     });
 
     map.on('zoomend', () => {
-        if (map && map._container && map._container.offsetWidth > 0 && map._container.offsetHeight > 0) {
+        if (map._container && map._container.offsetWidth > 0 && map._container.offsetHeight > 0) {
             map.invalidateSize(true);
         } else {
             console.warn("地圖容器尺寸無效，無法重新計算地圖尺寸。");
@@ -1038,7 +920,7 @@ function toggleSidebar() {
     }
 
     setTimeout(() => {
-        if (map && map._container && map._container.offsetWidth > 0 && map._container.offsetHeight > 0) {
+        if (map._container && map._container.offsetWidth > 0 && map._container.offsetHeight > 0) {
             map.invalidateSize(true); 
         } else {
             console.warn("地圖容器尺寸無效，無法重新計算地圖尺寸。");
